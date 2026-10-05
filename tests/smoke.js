@@ -163,6 +163,22 @@ function serve() {
     () => check('clear screen is shown', true), () => check('clear screen is shown', false));
   check('progress is persisted', (await page.evaluate(() => localStorage.getItem('rel_unlocked'))) === '1');
 
+  const quote = await page.evaluate(() => {
+    const Q = window.RelWorld.QUOTES;
+    const bad = Q.filter(q => !q.t || !q.who || !(q.year >= 1940 && q.year <= 2025));
+    const el = document.getElementById('clearQuote');
+    return {
+      count: Q.length, bad: bad.length,
+      shownText: (el.querySelector('.q-text') || {}).textContent || '',
+      shownWho: (el.querySelector('.q-who') || {}).textContent || ''
+    };
+  });
+  check('every quote carries a speaker and a plausible year',
+    quote.count > 20 && quote.bad === 0, `${quote.count} quotes`);
+  check('finishing a floor shows a quote with its year',
+    quote.shownText.length > 10 && /\d{4}/.test(quote.shownWho),
+    quote.shownWho.trim());
+
   /* ---- 3. losing keeps the page alive (no location.reload) ---- */
   await page.click('#btnNext');
   await page.click('#btnGo');
@@ -235,19 +251,27 @@ function serve() {
   // the opening must hold the whole building in frame, zoomed right out
   await page.waitForTimeout(900);
   const tower = await page.evaluate(() => {
-    const R = window.RelWorld, s = R.state, VH = 600;
+    const R = window.RelWorld, s = R.state, v = R.view();
     // where the renderer actually puts the roof and the base of the shell
-    const screenY = (isoY, z) => VH / 2 + s.scale * (isoY - s.camY + z);
+    const screenY = (isoY, z) => v.h / 2 + s.scale * (isoY - s.camY + z);
+    const screenX = isoX => v.w / 2 + s.scale * (isoX - s.camX);
     return {
-      scale: s.scale, alpha: s.buildingAlpha,
-      top: screenY(0, R.SHELL_TOP * R.ZH),
-      bottom: screenY(19 * R.TH, R.SHELL_BOT * R.ZH)
+      view: v, alpha: s.buildingAlpha,
+      side: document.body.classList.contains('wide-brief'),
+      top: screenY(0, R.SHELL_TOP * R.ZH) / v.h,
+      bottom: screenY(19 * R.TH, R.SHELL_BOT * R.ZH) / v.h,
+      right: screenX(19 * 30) / v.w
     };
   });
-  // the briefing text owns the bottom of the frame, so the tower must sit above it
+  // The briefing text sits either below the tower or beside it; either way the
+  // whole building has to stay in the clear.
+  const towerOk = tower.side
+    ? (tower.top > 0.01 && tower.bottom < 0.99 && tower.right < 0.64)
+    : (tower.top > 0.01 && tower.bottom < 0.75);
   check('opening holds the whole building clear of the briefing text',
-    tower.alpha > 0.95 && tower.top > 10 && tower.bottom < 430,
-    `scale=${tower.scale.toFixed(3)} spans y ${tower.top.toFixed(0)}..${tower.bottom.toFixed(0)}`);
+    tower.alpha > 0.95 && towerOk,
+    `${tower.side ? 'side' : 'stacked'} layout, spans ${(tower.top * 100).toFixed(0)}%..` +
+    `${(tower.bottom * 100).toFixed(0)}% of a ${tower.view.w}x${tower.view.h} view`);
 
   // and the reveal is slow enough to watch, not a blink
   const stillTower = await page.evaluate(() =>
@@ -258,11 +282,28 @@ function serve() {
   await page.waitForFunction(() => window.RelWorld.state.brief.t > window.RelWorld.BRIEF_OPEN_MS + 250,
     { timeout: 12000 });
   const wide = await page.evaluate(() => {
-    const s = window.RelWorld.state;
-    return { scale: s.scale, alpha: s.buildingAlpha, state: s.state };
+    const R = window.RelWorld, s = R.state, v = R.view();
+    const TW = 60, TH = R.TH;
+    // the four corners of the floor plan, in screen space
+    const pts = [[0, 0], [19, 0], [0, 19], [19, 19]].map(([x, y]) => ({
+      x: v.w / 2 + s.scale * ((x - y) * TW / 2 - s.camX),
+      y: v.h / 2 + s.scale * ((x + y) * TH / 2 - s.camY)
+    }));
+    const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+    return {
+      alpha: s.buildingAlpha, view: v,
+      left: Math.min(...xs), right: Math.max(...xs),
+      top: Math.min(...ys), bottom: Math.max(...ys)
+    };
   });
-  check('briefing pulls back to show the whole maze',
-    wide.scale > 0.55 && wide.scale < 0.9 && wide.alpha < 0.05, JSON.stringify(wide));
+  const fitsW = wide.left > -8 && wide.right < wide.view.w + 8;
+  const fitsH = wide.top > -8 && wide.bottom < wide.view.h + 8;
+  // and it should actually use the space, not sit as a stamp in the middle
+  const fills = (wide.right - wide.left) / wide.view.w > 0.5 ||
+                (wide.bottom - wide.top) / wide.view.h > 0.5;
+  check('briefing fits the whole maze on screen and fills it',
+    wide.alpha < 0.05 && fitsW && fitsH && fills,
+    `${(wide.right - wide.left).toFixed(0)}x${(wide.bottom - wide.top).toFixed(0)} in ${wide.view.w}x${wide.view.h}`);
 
   // the read-along advances on its own even with no speech voice installed
   const reading = await page.evaluate(() => {
@@ -326,9 +367,12 @@ function serve() {
     }
     if (!spot) return { ok: false, reason: 'no suitable wall found' };
 
-    const ctx2 = document.getElementById('gameCanvas').getContext('2d');
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const TW = 60, TH = 46, ZH = 34, VW = 1000, VH = 600;
+    const cv = document.getElementById('gameCanvas');
+    const ctx2 = cv.getContext('2d');
+    const view = window.RelWorld.view();
+    const VW = view.w, VH = view.h;
+    const dpr = cv.width / VW;                    // whatever the renderer settled on
+    const TW = 60, TH = window.RelWorld.TH, ZH = window.RelWorld.ZH;
     const sample = async (px, py) => {
       s.player.x = px; s.player.y = py;
       await new Promise(r => setTimeout(r, 700));        // let the camera settle

@@ -16,11 +16,17 @@
   // walls hide half the floor. A taller TH tips the camera towards top-down,
   // and the shorter wall height keeps sight lines open.
   const TW = 60, TH = 46, ZH = 34;          // iso tile width / height / wall height
-  const VIEW_W = 1000, VIEW_H = 600;        // logical canvas units
+  // The logical viewport tracks the canvas box, so the view fills whatever
+  // shape the screen is instead of being letterboxed into a fixed 5:3 window.
+  let VIEW_W = 1000, VIEW_H = 600;
+  let cx0 = VIEW_W / 2, cy0 = VIEW_H / 2;
   const MOVE_MS = 115;                      // grid step cadence while a key is held
   const COMBO_MS = 2600;                    // window to keep a combo alive
   const MAX_STRIKES = 3;
-  const WIDE_SCALE = 0.62;                  // pulls back far enough for the whole floor
+  // The floor plan and the tower, measured in world units, so the framing below
+  // can be derived from the viewport instead of hard-coded for one screen size.
+  const PLAN_W = (MAP_W - 1 + MAP_H - 1) * TW / 2;      // iso width of the floor
+  const PLAN_H = (MAP_W - 1 + MAP_H - 1) * TH / 2;      // iso height of the floor
   const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0]];
 
   const isDesk = t => t === TILE.DESK || t === TILE.DESK_SAD || t === TILE.DESK_UP || t === TILE.DESK_UP_SAD;
@@ -101,6 +107,45 @@
     const th = THEMES[(i - STORY.length) % THEMES.length];
     STORY.push({ title: `קומה ${i + 1}: ${th.t}`, subtitle: th.s, text: th.d, type: th.type });
   }
+
+
+  /* ======================= hall of fame ======================= */
+  // Real quotes from real people in the industry, with the year they said it.
+  // The two that are almost certainly apocryphal are labelled as such rather
+  // than passed off as genuine.
+  const QUOTES = [
+    { t: 'אין שום סיכוי שהאייפון יתפוס נתח שוק משמעותי. שום סיכוי.', who: 'סטיב באלמר, מנכ"ל מיקרוסופט', year: 2007 },
+    { t: 'חמש מאות דולר?! זה הטלפון הכי יקר בעולם, ואין לו אפילו מקלדת.', who: 'סטיב באלמר, על האייפון', year: 2007 },
+    { t: 'הייתי סוגר את אפל ומחזיר את הכסף לבעלי המניות.', who: 'מייקל דל, על מה שהיה עושה במקום ג\'ובס', year: 1997 },
+    { t: 'אפל כבר מתה.', who: 'נייתן מירוולד, סמנכ"ל הטכנולוגיות של מיקרוסופט', year: 1997 },
+    { t: 'אין שום סיבה שמישהו ירצה מחשב בבית שלו.', who: 'קן אולסן, מייסד DEC', year: 1977 },
+    { t: 'בעוד שנתיים בעיית הספאם תיפתר.', who: 'ביל גייטס, בפורום הכלכלי העולמי', year: 2004 },
+    { t: 'לינוקס זה סרטן.', who: 'סטיב באלמר', year: 2001 },
+    { t: 'גוגל היא לא חברה אמיתית. היא מגדל קלפים.', who: 'סטיב באלמר', year: 2005 },
+    { t: 'האינטרנט יתפוצץ כמו סופרנובה ויקרוס קטסטרופלית בשנה הבאה.', who: 'רוברט מטקאלף, ממציא האתרנט — ב-1997 הוא אכל את המאמר, פשוטו כמשמעו', year: 1995 },
+    { t: 'ההשפעה של האינטרנט על הכלכלה לא תהיה גדולה משל מכונת הפקס.', who: 'פול קרוגמן, כלכלן, לימים חתן פרס נובל', year: 1998 },
+    { t: 'לא משנה כמה המוצר טוב או רע — העובדה היא שאנשים כבר לא קוראים.', who: 'סטיב ג\'ובס, על הקינדל', year: 2008 },
+    { t: 'פשוט אל תחזיקו אותו ככה.', who: 'סטיב ג\'ובס, על בעיית הקליטה באייפון 4', year: 2010 },
+    { t: 'עשינו את הכפתורים על המסך כל כך יפים, שתרצו ללקק אותם.', who: 'סטיב ג\'ובס, על ממשק Aqua', year: 2000 },
+    { t: 'עדיף להיות פיראט מאשר להתגייס לצי.', who: 'סטיב ג\'ובס, לצוות המקינטוש', year: 1982 },
+    { t: 'מודל המנוי למוזיקה פשט את הרגל.', who: 'סטיב ג\'ובס, שלוש שנים לפני שספוטיפיי הוקמה', year: 2003 },
+    { t: 'אמנים אמיתיים משחררים מוצר.', who: 'סטיב ג\'ובס', year: 1983 },
+    { t: 'מפתחים! מפתחים! מפתחים! מפתחים!', who: 'סטיב באלמר, על הבמה, מיוזע', year: 2000 },
+    { t: 'אנשים צעירים הם פשוט חכמים יותר.', who: 'מארק צוקרברג, בכנס ליזמים', year: 2007 },
+    { t: 'פרטיות כבר אינה נורמה חברתית.', who: 'מארק צוקרברג', year: 2010 },
+    { t: 'ממילא אין לכם שום פרטיות. תתגברו.', who: 'סקוט מקנילי, מנכ"ל Sun Microsystems', year: 1999 },
+    { t: 'המטאוורס הוא הפרק הבא של האינטרנט.', who: 'מארק צוקרברג, בהכרזה על שינוי שם החברה', year: 2021 },
+    { t: 'תזוזו מהר ותשברו דברים.', who: 'מארק צוקרברג, המוטו הרשמי של פייסבוק', year: 2009 },
+    { t: 'אף אחד מעולם לא שינה את העולם בשבוע עבודה של 40 שעות.', who: 'אילון מאסק', year: 2018 },
+    { t: 'אני בטוח שטסלה תיסע לבד מלוס אנג\'לס לניו יורק עד סוף השנה.', who: 'אילון מאסק', year: 2017 },
+    { t: 'היכולת לעבוד 996 היא ברכה עצומה.', who: 'ג\'ק מא, מייסד עליבאבא', year: 2019 },
+    { t: 'למדוד התקדמות בתכנות לפי שורות קוד זה כמו למדוד התקדמות בבניית מטוס לפי משקל.', who: 'ביל גייטס', year: 1986 },
+    { t: 'אם לא התביישתם בגרסה הראשונה של המוצר שלכם — השקתם מאוחר מדי.', who: 'ריד הופמן, ממייסדי לינקדאין', year: 2009 },
+    { t: 'תוכנה אוכלת את העולם.', who: 'מארק אנדריסן', year: 2011 },
+    { t: 'אנחנו לא מונופול. יש לנו נתח שוק. יש הבדל.', who: 'סטיב באלמר', year: 1998 },
+    { t: '640 קילובייט זיכרון יספיקו לכל אחד.', who: 'מיוחס לביל גייטס — שמכחיש בתוקף שאי פעם אמר את זה', year: 1981 },
+    { t: 'לדעתי יש שוק עולמי לאולי חמישה מחשבים.', who: 'מיוחס לתומס ווטסון מ-IBM — ככל הנראה מעולם לא נאמר', year: 1943 }
+  ];
 
   const GOAL_TILE = [TILE.ELEVATOR, TILE.MEETING, TILE.HR];
   const GOAL_NAME = ['המעלית 🔼', 'חדר הישיבות 🗓️', 'משרד HR 👩‍⚖️'];
@@ -588,8 +633,33 @@
   // base ended up behind the briefing text. 36 storeys fit the clear band above
   // the narration while still reading as a skyscraper.
   const SHELL_TOP = -17, SHELL_BOT = 19;
-  const TOWER_SCALE = 0.16;    // holds the whole building in the clear band
-  const TOWER_CAM_Y = 815;     // lifts it clear of the briefing text
+
+  /** Scale and camY that frame `height` world units of content, whose centre is
+      at `centre`, into the fraction `band` of the viewport, sitting at `at`. */
+  function frameShot(worldW, height, centre, band, at, widthBand, atX) {
+    const scale = Math.min((VIEW_W * (widthBand || 1) - 70) / worldW, (VIEW_H * band) / height);
+    return {
+      scale,
+      camX: (0.5 - (atX === undefined ? 0.5 : atX)) * VIEW_W / scale,
+      camY: centre + (0.5 - at) * VIEW_H / scale
+    };
+  }
+
+  // On a wide screen the briefing text moves into a side column, so the floor
+  // gets the full height instead of being squeezed above a block of text.
+  let sideBrief = false;
+  const BRIEF_BAND = () => (sideBrief ? [0.86, 0.5, 0.58, 0.29] : [0.62, 0.37, 1, 0.5]);
+
+  const planShotBriefing = () => {
+    const [band, at, wb, atX] = BRIEF_BAND();
+    return frameShot(PLAN_W + 60, PLAN_H + ZH + 60, PLAN_H / 2, band, at, wb, atX);
+  };
+  const towerShot = () => {
+    const [band, at, wb, atX] = BRIEF_BAND();
+    return frameShot(PLAN_W + 80, PLAN_H + (SHELL_BOT - SHELL_TOP) * ZH,
+                     (PLAN_H + (SHELL_BOT + SHELL_TOP) * ZH) / 2,
+                     sideBrief ? 0.80 : 0.60, sideBrief ? 0.5 : 0.38, wb, atX);
+  };
   const inRoom = (x, y) => !!(S.roomMask && S.roomMask[y] && S.roomMask[y][x]);
   const floorTileUnder = (x, y) => inRoom(x, y) ? TILE.ROOM : TILE.FLOOR;
 
@@ -695,7 +765,8 @@
   /** Camera shots for the briefing: the whole floor first, then the people. */
   function buildShots(f) {
     const iso = (x, y) => ({ x: (x - y) * TW / 2, y: (x + y) * TH / 2 });
-    const wide = { x: 0, y: ISO_MAX_Y / 2, scale: WIDE_SCALE };
+    const w = planShotBriefing();
+    const wide = { x: w.camX, y: w.camY, scale: w.scale };
     const shots = [wide];
 
     // group desks into crowds, so the camera frames a team and not one chair
@@ -795,7 +866,8 @@
     S.brief.t = 0;
     S.brief.tourBase = -1;
     S.brief.shots = buildShots(f);
-    S.camX = 0; S.camY = TOWER_CAM_Y; S.scale = TOWER_SCALE; S.buildingAlpha = 1;
+    const tw = towerShot();
+    S.camX = tw.camX; S.camY = tw.camY; S.scale = tw.scale; S.buildingAlpha = 1;
     showScreen('briefing');
     narrateMission();
   }
@@ -851,6 +923,9 @@
       `<div class="good">🛡️ בונוס ללא אזהרות: +${strikeBonus}</div>`,
       `<div>📈 ניקוד מצטבר: <b>${S.score}</b></div>`
     ].join('');
+    const q = QUOTES[S.level % QUOTES.length];
+    $('clearQuote').innerHTML =
+      `<div class="q-text">״${q.t}״</div><div class="q-who">— ${q.who}, ${q.year}</div>`;
     $('btnNext').textContent = S.level >= FLOORS - 1 ? 'לסיום הקריירה' : 'לקומה הבאה';
     refreshStatus();
     setTimeout(() => { if (S.state === 'clear') showScreen('clear'); }, 900);
@@ -1106,20 +1181,23 @@
       S.brief.t += dt;
       const d = S.brief.t / BRIEF_OPEN_MS;
       if (d < 1) {
-        S.camX = 0;
+        const tw = towerShot(), pl = planShotBriefing();
+        const drift = tw.scale * 0.19;      // a touch of push-in on the hold
         if (d < 0.42) {
           // Establishing shot: the whole tower in frame, drifting slowly past
           // it. The old opening started at 0.13 with the camera a thousand
           // units above the roof, so the building barely registered.
           const e = smooth(d / 0.42);
-          S.scale = TOWER_SCALE + e * 0.03;
-          S.camY = TOWER_CAM_Y + e * 35;
+          S.scale = tw.scale + e * drift;
+          S.camX = tw.camX;
+          S.camY = tw.camY + e * 35;
           S.buildingAlpha = 1;
         } else {
           // then fly into it, dissolving the shell to reveal the floor plan
           const e = smooth((d - 0.42) / 0.58);
-          S.scale = (TOWER_SCALE + 0.03) + e * (WIDE_SCALE - TOWER_SCALE - 0.03);
-          S.camY = (TOWER_CAM_Y + 35) + e * (ISO_MAX_Y / 2 - TOWER_CAM_Y - 35);
+          S.scale = (tw.scale + drift) + e * (pl.scale - tw.scale - drift);
+          S.camX = tw.camX + e * (pl.camX - tw.camX);
+          S.camY = (tw.camY + 35) + e * (pl.camY - tw.camY - 35);
           S.buildingAlpha = clamp(1 - (d - 0.62) / 0.3, 0, 1);
         }
       } else {
@@ -1158,8 +1236,9 @@
     }
 
     if (S.state === 'menu') {
-      S.scale = TOWER_SCALE; S.camX = 0; S.buildingAlpha = 1;
-      S.camY = TOWER_CAM_Y + Math.sin(S.globalTime * 0.004) * 90;
+      const tw = towerShot();
+      S.scale = tw.scale; S.camX = tw.camX; S.buildingAlpha = 1;
+      S.camY = tw.camY + Math.sin(S.globalTime * 0.004) * 90;
       return;
     }
 
@@ -1341,7 +1420,6 @@
   // Projection shared by the city backdrop and the tower shell. Note the +cx/+cy:
   // the original omitted it, so the tower and the floor plan never lined up
   // during the cross-fade.
-  const cx0 = VIEW_W / 2, cy0 = VIEW_H / 2;
   const pt = (x, y, z) => ({
     x: cx0 + (x - y) * TW / 2 - S.camX,
     y: cy0 + (x + y) * TH / 2 - S.camY + z
@@ -1677,6 +1755,7 @@
     else if (e.code === 'KeyM') toggleOption('music');
     else if (e.code === 'KeyN') toggleOption('sfx');
     else if (e.code === 'KeyV') toggleOption('narration');
+    else if (e.code === 'KeyF') toggleFullscreen();
   });
 
   window.addEventListener('keyup', e => {
@@ -1863,13 +1942,47 @@
 
   // crisp rendering on high-DPI screens, logical coordinates stay 1000x600
   function setupCanvas() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const box = canvas.getBoundingClientRect();
+    VIEW_W = Math.max(320, Math.round(box.width || 1000));
+    VIEW_H = Math.max(240, Math.round(box.height || 600));
+    cx0 = VIEW_W / 2;
+    cy0 = VIEW_H / 2;
+    sideBrief = VIEW_W >= 900 && VIEW_W / VIEW_H >= 1.25;
+    document.body.classList.toggle('wide-brief', sideBrief);
+    // cap the backing store so a huge window does not cost 4x the fill rate
+    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const budget = 3.2e6;
+    if (VIEW_W * VIEW_H * dpr * dpr > budget) {
+      dpr = Math.max(1, Math.sqrt(budget / (VIEW_W * VIEW_H)));
+    }
     canvas.width = Math.round(VIEW_W * dpr);
     canvas.height = Math.round(VIEW_H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   setupCanvas();
   window.addEventListener('resize', setupCanvas);
+  window.addEventListener('orientationchange', setupCanvas);
+  // the canvas also changes size when the task panel or the pad appears, which
+  // fires no resize event of its own
+  if (window.ResizeObserver) new ResizeObserver(setupCanvas).observe(canvas);
+  document.addEventListener('fullscreenchange', () => {
+    setupCanvas();
+    $('btnFull').setAttribute('aria-pressed', String(!!document.fullscreenElement));
+  });
+
+  // A pointer-only machine has a keyboard, so the thumb pad is just wasted
+  // vertical space there.
+  if (!('ontouchstart' in window) && !(navigator.maxTouchPoints > 0)) {
+    document.body.classList.add('no-touch');
+  }
+
+  function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
+    } catch (e) { /* denied or unsupported: nothing to do */ }
+  }
+  $('btnFull').addEventListener('click', toggleFullscreen);
 
   /* ======================= main loop ======================= */
   let lastFrame = performance.now();
@@ -1917,7 +2030,8 @@
   // Test seam: lets the headless smoke test validate all 100 floors without
   // having to duplicate the generator.
   window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS,
-                      state: S, options, BRIEF_OPEN_MS, TOWER_SCALE, missionScript,
+                      state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES,
+                      view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,
                       SHELL_TOP, SHELL_BOT, ZH, TH };
 
   /* ======================= boot ======================= */

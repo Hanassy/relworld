@@ -21,11 +21,13 @@ body {
   overflow: hidden;
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
-  /* column layout so the thumb controls sit at the bottom of a tall phone */
+  /* Column layout that owns the viewport exactly: the canvas takes whatever is
+     left over, so the game fills the screen instead of sitting in a 1000x600
+     box with black margins around it. */
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
 }
 
 /* ---------- top bar ---------- */
@@ -34,8 +36,9 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  max-width: 1000px;
+  width: 100%;
   margin: 0 auto 3px auto;
+  flex: 0 0 auto;
   flex-wrap: wrap;
 }
 .brand { text-align: right; line-height: 1; }
@@ -84,7 +87,13 @@ h1 {
 .icon-btn[aria-pressed="false"] { opacity: 0.4; }
 
 /* ---------- canvas ---------- */
-#gameContainer { position: relative; width: 100%; max-width: 1000px; margin: 0 auto; }
+#gameContainer {
+  position: relative;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 140px;
+  margin: 0 auto;
+}
 
 canvas {
   background-color: #020205;
@@ -93,10 +102,10 @@ canvas {
   border-radius: 6px;
   box-shadow: 0 0 30px rgba(0, 150, 255, 0.2);
   display: block;
+  /* fills the container; the renderer matches its logical viewport to this box,
+     so the view is never stretched or letterboxed whatever the screen shape */
   width: 100%;
-  height: auto;
-  aspect-ratio: 5 / 3;
-  max-height: 60vh;
+  height: 100%;
   touch-action: none;
 }
 
@@ -138,6 +147,22 @@ canvas {
 }
 .brief-top { width: 100%; }
 .brief-bottom { width: 100%; max-width: 720px; }
+
+/* wide screen: the text becomes a side column (JS sets .wide-brief to match
+   the camera framing, so the two can never disagree) */
+body.wide-brief .overlayScreen.cinematic {
+  background: linear-gradient(to left, rgba(0, 0, 0, 0.94) 0%, rgba(0, 0, 0, 0.9) 24%,
+    rgba(0, 0, 0, 0.5) 38%, rgba(0, 0, 0, 0) 50%);
+  justify-content: center;
+  align-items: flex-start;
+  padding: 10px 16px;
+}
+body.wide-brief .brief-top,
+body.wide-brief .brief-bottom { width: 40%; min-width: 300px; max-width: 460px; }
+body.wide-brief .brief-top { margin-bottom: 10px; }
+body.wide-brief .narration { margin-inline: 0; }
+body.wide-brief .objectives.chips { justify-content: flex-start; }
+body.wide-brief .btn-row { justify-content: flex-start; }
 .overlayScreen.cinematic h1 { margin-bottom: 2px; }
 .overlayScreen.cinematic .missionText { margin-bottom: 0; font-size: 13px; }
 
@@ -260,6 +285,19 @@ button.main-btn.small { padding: 5px 14px; font-size: 12px; margin: 0; }
 .objectives .good { color: #5f5; }
 .objectives .bad { color: var(--red); }
 
+/* the "wisdom of the industry" card on the level-clear screen */
+.quote {
+  max-width: 520px;
+  margin: 0 auto 10px;
+  padding: 8px 14px;
+  border-inline-start: 3px solid var(--gold);
+  background: rgba(255, 204, 0, 0.07);
+  border-radius: 6px;
+  text-align: right;
+}
+.quote .q-text { font-size: 14px; font-style: italic; color: #ffe9a8; line-height: 1.45; }
+.quote .q-who { font-size: 11px; color: #9ab; margin-top: 4px; }
+
 .name-form { margin-bottom: 6px; font-size: 11px; }
 .name-form[hidden] { display: none; }
 .name-row { display: flex; gap: 4px; margin-top: 3px; justify-content: center; }
@@ -300,7 +338,7 @@ button.main-btn.small { padding: 5px 14px; font-size: 12px; margin: 0; }
 
 #bottomPanelContainer {
   width: 100%;
-  max-width: 1000px;
+  flex: 0 0 auto;
   margin: 3px auto 0;
   background: rgba(0, 0, 0, 0.88);
   border: 1px solid var(--cyan);
@@ -321,8 +359,8 @@ button.main-btn.small { padding: 5px 14px; font-size: 12px; margin: 0; }
   justify-content: space-between;
   align-items: center;
   width: 100%;
-  max-width: 1000px;
-  margin: auto auto 0;          /* auto top margin pins the pad to the bottom */
+  flex: 0 0 auto;
+  margin: 6px auto 0;
   padding: 0 4px env(safe-area-inset-bottom, 4px);
 }
 .dpad { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(2, 38px); gap: 3px; }
@@ -356,18 +394,31 @@ button.main-btn.small { padding: 5px 14px; font-size: 12px; margin: 0; }
 .action-btn.active, .action-btn:active { background: rgba(0, 204, 255, 0.5); color: #000; transform: scale(0.92); }
 
 /* ---------- responsive ---------- */
+/* a pointer-only device has a keyboard: give the screen back to the game */
+body.no-touch #touchControls { display: none; }
+
 @media (max-width: 720px) {
   h1 { font-size: 15px; }
   #topBar { gap: 4px; }
   .overlayScreen h1 { font-size: 19px; }
   .panel { width: 100%; max-width: 300px; }
-  canvas { max-height: 52vh; }
   .narration { font-size: 13px; line-height: 1.5; }
   .overlayScreen.cinematic { padding: 6px 8px; }
+  .quote .q-text { font-size: 12.5px; }
 }
-@media (orientation: landscape) and (max-height: 520px) {
+/* landscape phone: strip the chrome down so the floor gets the pixels */
+@media (orientation: landscape) and (max-height: 560px) {
+  body { padding: 2px; }
   .brand, .select-label { display: none; }
-  canvas { max-height: 62vh; }
+  #ui { font-size: 10px; padding: 2px 6px; }
+  .dpad { grid-template-columns: repeat(3, 38px); grid-template-rows: repeat(2, 32px); }
+  .action-btn { width: 78px; height: 56px; }
+  #touchControls { margin-top: 3px; }
+  .overlayScreen h1 { font-size: 16px; margin-bottom: 1px; }
+  .overlayScreen.cinematic .missionText { font-size: 11px; }
+  .narration { font-size: 12px; line-height: 1.4; min-height: 0; }
+  .menu-cols { gap: 6px; }
+  #levelSelectCont { max-height: 54px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .timer.danger { animation: none; }

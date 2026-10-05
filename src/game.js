@@ -655,7 +655,7 @@
     return frameShot(PLAN_W + 60, PLAN_H + ZH + 60, PLAN_H / 2, band, at, wb, atX);
   };
   const towerShot = () => {
-    const [band, at, wb, atX] = BRIEF_BAND();
+    const [, , wb, atX] = BRIEF_BAND();   // the tower sets its own vertical band
     return frameShot(PLAN_W + 80, PLAN_H + (SHELL_BOT - SHELL_TOP) * ZH,
                      (PLAN_H + (SHELL_BOT + SHELL_TOP) * ZH) / 2,
                      sideBrief ? 0.80 : 0.60, sideBrief ? 0.5 : 0.38, wb, atX);

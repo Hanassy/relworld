@@ -81,7 +81,8 @@ tests/smoke.js    בדיקות אוטומטיות בדפדפן אמיתי
 
 ```sh
 npm install --no-save playwright
-node tests/smoke.js
+node tests/smoke.js        # 27 checks in a real browser
+npx eslint src tests       # no build step, no config to write
 ```
 
 הבדיקה מרימה שרת סטטי משלה ומריצה את המשחק בכרומיום: היא מוודאת ש**כל 100 הקומות

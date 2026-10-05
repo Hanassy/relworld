@@ -42,7 +42,7 @@
   let highScores = store.get('rel_scores', []);
   if (!Array.isArray(highScores)) highScores = [];
   let bestScore = store.get('rel_best', 0) || 0;
-  const options = Object.assign({ sfx: true, music: true }, store.get('rel_opts', {}));
+  const options = Object.assign({ sfx: true, music: true, narration: true }, store.get('rel_opts', {}));
 
   /* ======================= deterministic RNG ======================= */
   // Floor N must look the same on every visit, so layouts are seeded by index.
@@ -202,6 +202,78 @@
       },
       combo(level) { tone(700 + level * 140, 'sine', 0.09, 0.18); }
     };
+  })();
+
+  /* ======================= narrator =======================
+     Reads the mission aloud and reports progress (0..1) so the briefing camera
+     and the word highlighting stay in step. Speech is best-effort: with no
+     Hebrew voice installed it degrades to a silent, timed read-along rather
+     than mangling Hebrew through an English voice. */
+  const Narrator = (function () {
+    const synth = window.speechSynthesis;
+    let fallbackId = null, boundarySeen = false, guardId = null;
+    let startedAt = 0, estimate = 1, onProgress = null;
+
+    if (synth && typeof synth.addEventListener === 'function') {
+      // Chrome populates the voice list asynchronously; this warms it up.
+      try { synth.addEventListener('voiceschanged', () => synth.getVoices()); } catch (e) { /* ignore */ }
+    }
+
+    function hebrewVoice() {
+      if (!synth || !synth.getVoices) return { voice: null, known: false };
+      let voices = [];
+      try { voices = synth.getVoices() || []; } catch (e) { voices = []; }
+      const hit = voices.find(v => v.lang && /^(he|iw)/i.test(v.lang));
+      return { voice: hit || null, known: voices.length > 0 };
+    }
+
+    function stop() {
+      if (fallbackId) { clearInterval(fallbackId); fallbackId = null; }
+      if (guardId) { clearTimeout(guardId); guardId = null; }
+      onProgress = null;
+      try { if (synth) synth.cancel(); } catch (e) { /* ignore */ }
+    }
+
+    function runSilent() {
+      if (fallbackId) return;
+      startedAt = performance.now();
+      fallbackId = setInterval(() => {
+        const p = Math.min(1, (performance.now() - startedAt) / estimate);
+        if (onProgress) onProgress(p);
+        if (p >= 1) { clearInterval(fallbackId); fallbackId = null; }
+      }, 60);
+    }
+
+    function speak(text, progressCb) {
+      stop();
+      onProgress = progressCb;
+      boundarySeen = false;
+      estimate = Math.max(2600, text.length * 62);   // rough Hebrew read-along pace
+
+      const { voice, known } = hebrewVoice();
+      const canSpeak = options.narration && synth && window.SpeechSynthesisUtterance && (voice || !known);
+      if (!canSpeak) { runSilent(); return; }
+
+      try {
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = 'he-IL';
+        if (voice) u.voice = voice;
+        u.rate = 0.98;
+        u.onboundary = e => {
+          if (e.name && e.name !== 'word') return;
+          boundarySeen = true;
+          if (fallbackId) { clearInterval(fallbackId); fallbackId = null; }
+          if (onProgress) onProgress(Math.min(1, (e.charIndex || 0) / Math.max(1, text.length)));
+        };
+        u.onend = () => { if (onProgress) onProgress(1); };
+        u.onerror = () => runSilent();
+        synth.speak(u);
+        // Some voices never emit boundary events: fall back to the timed read.
+        guardId = setTimeout(() => { if (!boundarySeen) runSilent(); }, 900);
+      } catch (e) { runSilent(); }
+    }
+
+    return { speak, stop };
   })();
 
   /* ======================= floor layout ======================= */
@@ -476,11 +548,14 @@
     timeLeft: 0,
     camX: 0, camY: 350, scale: 0.13, buildingAlpha: 1, introT: 0,
     shake: 0, globalTime: 0,
+    brief: { t: 0, shots: [], progress: 0, tourBase: -1, words: [], textLen: 1, wordIndex: -2 },
+    introFrom: { x: 0, y: 350, scale: 0.13, alpha: 1 },
     particles: [], texts: [], slapFx: [],
     scoreSaved: false
   };
 
-  const INTRO_DUR = 2600;
+  const INTRO_DUR = 1100;      // the tower dive now lives in the briefing
+  const BRIEF_DESCEND_MS = 1900;
   const inRoom = (x, y) => !!(S.roomMask && S.roomMask[y] && S.roomMask[y][x]);
   const floorTileUnder = (x, y) => inRoom(x, y) ? TILE.ROOM : TILE.FLOOR;
 
@@ -567,36 +642,9 @@
   }
 
   /* ======================= level flow ======================= */
-  function openBriefing(level, resetRun) {
-    Audio.init();
-    if (resetRun) {
-      S.score = 0; S.keys = 0; S.gpus = 0; S.masterKey = false;
-      S.strikes = 0; S.runFloors = 0;
-    }
-    S.level = clamp(level, 0, FLOORS - 1);
-    S.scoreAtStart = S.score;
-    S.state = 'briefing';
-    S.camX = 0; S.camY = 350; S.scale = 0.13; S.buildingAlpha = 1;
-
-    const story = STORY[S.level];
-    const preview = buildFloor(S.level);
-    $('bTitle').textContent = story.title;
-    $('bSubtitle').textContent = story.subtitle;
-    $('bText').textContent = story.text;
-    $('bObjectives').innerHTML = [
-      preview.type === 0 ? `🟩 שדרג ${preview.desks} עמדות ב-GPU` : '',
-      preview.type === 1 ? `🪙 אסוף ${preview.coinQuota} יחידות תקציב` : '',
-      preview.type === 2 ? '👺 צ\'אפחה לבוסניק, ואז מירוץ ל-HR' : '',
-      `🖐️ ${preview.desks} צ'אפחות לעובדים`,
-      `🏁 יעד: ${GOAL_NAME[preview.type]}`,
-      `⏳ ${Math.floor(preview.time / 60)}:${String(preview.time % 60).padStart(2, '0')} על השעון`
-    ].filter(Boolean).map(s => `<div>${s}</div>`).join('');
-
-    showScreen('briefing');
-  }
-
-  function startLevel() {
-    Audio.init(); Audio.resetMusic();
+  /** Builds the floor and seats everyone on it. Used by the briefing tour and
+      by the level itself, so the camera previews exactly what you will play. */
+  function prepareFloor() {
     const f = buildFloor(S.level);
     S.floor = f;
     S.map = f.map;
@@ -606,14 +654,121 @@
     S.combo = 0; S.comboTimer = 0;
     S.particles = []; S.texts = []; S.slapFx = [];
     S.timeLeft = f.time;
+    spawnRivals();
+    return f;
+  }
+
+  /** Camera shots for the briefing: the whole floor first, then the people. */
+  function buildShots(f) {
+    const iso = (x, y) => ({ x: (x - y) * TW / 2, y: (x + y) * TH / 2 });
+    const wide = { x: 0, y: ISO_MAX_Y / 2, scale: 0.72 };
+    const shots = [wide];
+
+    // group desks into crowds, so the camera frames a team and not one chair
+    const clusters = [];
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        if (!isDesk(f.map[y][x])) continue;
+        const c = clusters.find(c => Math.abs(c.x - x) <= 4 && Math.abs(c.y - y) <= 4);
+        if (c) { c.x = (c.x * c.n + x) / (c.n + 1); c.y = (c.y * c.n + y) / (c.n + 1); c.n++; }
+        else clusters.push({ x, y, n: 1 });
+      }
+    }
+    clusters.sort((a, b) => b.n - a.n);
+    for (const c of clusters.slice(0, 2)) shots.push(Object.assign(iso(c.x, c.y), { scale: 1.5 }));
+    if (S.rivals.length) shots.push(Object.assign(iso(S.rivals[0].x, S.rivals[0].y), { scale: 1.75 }));
+    shots.push(Object.assign(iso(HR_POS.x, HR_POS.y), { scale: 1.6 }));
+    shots.push(wide);
+    return shots;
+  }
+
+  /** Splits the mission text into word spans we can light up one at a time. */
+  function renderNarration(text) {
+    const host = $('bText');
+    host.textContent = '';
+    S.brief.words = [];
+    S.brief.textLen = Math.max(1, text.length);
+    S.brief.wordIndex = -2;
+    const re = /\S+/g;
+    let m, last = 0;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) host.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const span = document.createElement('span');
+      span.className = 'w';
+      span.textContent = m[0];
+      host.appendChild(span);
+      S.brief.words.push({ start: m.index, el: span });
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) host.appendChild(document.createTextNode(text.slice(last)));
+  }
+
+  function narrationProgress(p) {
+    S.brief.progress = clamp(p, 0, 1);
+    const words = S.brief.words;
+    if (!words.length) return;
+    const charPos = S.brief.progress * S.brief.textLen;
+    let idx = 0;
+    while (idx + 1 < words.length && words[idx + 1].start <= charPos) idx++;
+    if (idx === S.brief.wordIndex) return;
+    S.brief.wordIndex = idx;
+    for (let i = 0; i < words.length; i++) {
+      words[i].el.classList.toggle('now', i === idx);
+      words[i].el.classList.toggle('said', i < idx);
+    }
+  }
+
+  function narrateMission() {
+    const story = STORY[S.level];
+    renderNarration(story.text);
+    narrationProgress(0);
+    S.brief.tourBase = S.brief.t >= BRIEF_DESCEND_MS ? 0 : -1;
+    Narrator.speak(story.text, narrationProgress);
+  }
+
+  function openBriefing(level, resetRun) {
+    Audio.init();
+    if (resetRun) {
+      S.score = 0; S.keys = 0; S.gpus = 0; S.masterKey = false;
+      S.strikes = 0; S.runFloors = 0;
+    }
+    S.level = clamp(level, 0, FLOORS - 1);
+    S.scoreAtStart = S.score;
+
+    const f = prepareFloor();
+    const story = STORY[S.level];
+    $('bTitle').textContent = story.title;
+    $('bSubtitle').textContent = story.subtitle;
+    $('bObjectives').innerHTML = [
+      f.type === 0 ? `🟩 שדרג ${f.desks} עמדות ב-GPU` : '',
+      f.type === 1 ? `🪙 אסוף ${f.coinQuota} יחידות תקציב` : '',
+      f.type === 2 ? '👺 ולבסוף: צ\'אפחה לבוסניק ומירוץ ל-HR' : '',
+      `🖐️ ${f.desks} צ'אפחות לעובדים`,
+      `🏁 יעד: ${GOAL_NAME[f.type]}`,
+      `⏳ ${Math.floor(f.time / 60)}:${String(f.time % 60).padStart(2, '0')} על השעון`
+    ].filter(Boolean).map(line => `<div>${line}</div>`).join('');
+
+    S.state = 'briefing';
+    S.brief.t = 0;
+    S.brief.tourBase = -1;
+    S.brief.shots = buildShots(f);
+    S.camX = 0; S.camY = -1100; S.scale = 0.13; S.buildingAlpha = 1;
+    showScreen('briefing');
+    narrateMission();
+  }
+
+  function startLevel() {
+    Narrator.stop();
+    Audio.init(); Audio.resetMusic();
+    prepareFloor();
     S.score = S.scoreAtStart;
-    S.buildingAlpha = 1; S.introT = 0;
+    // the briefing already showed the floor: dive in from wherever it ended up
+    S.introFrom = { x: S.camX, y: S.camY, scale: S.scale, alpha: S.buildingAlpha };
+    S.introT = 0;
     S.state = 'intro';
     lastShownSecond = -1; lastTaskHTML = '';
-    spawnRivals();
     updateHUD();
     showScreen(null);
-    Audio.init();
   }
 
   function spawnRivals() {
@@ -679,6 +834,7 @@
   }
 
   function toMenu() {
+    Narrator.stop();
     S.state = 'menu';
     S.floor = null;
     S.camX = 0; S.camY = 350; S.scale = 0.13; S.buildingAlpha = 1;
@@ -903,26 +1059,51 @@
     const p = S.player;
     const pcx = (p.x - p.y) * TW / 2, pcy = (p.x + p.y) * TH / 2;
 
+    if (S.state === 'briefing') {
+      S.brief.t += dt;
+      const d = S.brief.t / BRIEF_DESCEND_MS;
+      if (d < 1) {
+        // establishing shot: drop down the tower facade, dissolve the walls
+        const e = smooth(clamp(d, 0, 1));
+        S.scale = 0.13 + e * (0.72 - 0.13);
+        S.camX = 0;
+        S.camY = -1100 + e * (ISO_MAX_Y / 2 + 1100);
+        S.buildingAlpha = clamp(1 - (d - 0.5) / 0.5, 0, 1);
+      } else {
+        // then tour the floor: one shot per slice of the *remaining* narration.
+        // Re-basing matters: whatever was read during the descent must not eat
+        // into the establishing shot of the whole maze.
+        S.buildingAlpha = 0;
+        if (S.brief.tourBase < 0) S.brief.tourBase = S.brief.progress;
+        const span = 1 - S.brief.tourBase;
+        const tourP = span > 0.01 ? clamp((S.brief.progress - S.brief.tourBase) / span, 0, 1) : 1;
+        const shots = S.brief.shots;
+        const shot = shots[Math.min(shots.length - 1, Math.floor(tourP * shots.length))] || shots[0];
+        const ease = 1 - Math.pow(0.94, dt / 16.67);
+        S.scale += (shot.scale - S.scale) * ease;
+        S.camX += (shot.x - S.camX) * ease;
+        S.camY += (shot.y - S.camY) * ease;
+        clampCameraToFloor();
+      }
+      return;
+    }
+
     if (S.state === 'intro') {
       S.introT += dt;
       const k = clamp(S.introT / INTRO_DUR, 0, 1);
+      const e = smooth(k);
+      const from = S.introFrom;
       const target = inRoom(p.x, p.y) ? 2.3 : 1.25;
-      if (k < 0.45) {                       // dive down the tower facade
-        const e = smooth(k / 0.45);
-        S.scale = 0.13; S.camX = 0; S.camY = -1100 + e * 1450; S.buildingAlpha = 1;
-      } else if (k < 0.78) {                // zoom onto the player
-        const e = smooth((k - 0.45) / 0.33);
-        S.scale = 0.13 + e * (target - 0.13);
-        S.camX = e * pcx; S.camY = 350 + e * (pcy - 350); S.buildingAlpha = 1;
-      } else {                              // dissolve the walls away
-        S.scale = target; S.camX = pcx; S.camY = pcy;
-        S.buildingAlpha = 1 - (k - 0.78) / 0.22;
-      }
+      S.scale = from.scale + e * (target - from.scale);
+      S.camX = from.x + e * (pcx - from.x);
+      S.camY = from.y + e * (pcy - from.y);
+      S.buildingAlpha = from.alpha * (1 - e);
+      clampCameraToFloor();
       if (k >= 1) { S.state = 'playing'; S.buildingAlpha = 0; showScreen(null); }
       return;
     }
 
-    if (S.state === 'menu' || S.state === 'briefing') {
+    if (S.state === 'menu') {
       S.scale = 0.13; S.camX = 0; S.buildingAlpha = 1;
       S.camY = 350 + Math.sin(S.globalTime * 0.004) * 120;
       return;
@@ -1296,6 +1477,7 @@
     const dir = KEY_DIRS[e.code];
     if (dir) { e.preventDefault(); setHeld(dir, true); return; }
     if (e.code === 'Space' || e.code === 'Enter') {
+      if (S.state === 'briefing') { e.preventDefault(); startLevel(); return; }
       if (S.state === 'intro') { S.introT = INTRO_DUR; e.preventDefault(); return; }
       if (S.state === 'playing') { e.preventDefault(); doAction(); }
       return;
@@ -1303,6 +1485,7 @@
     if (e.code === 'KeyP' || e.code === 'Escape') { e.preventDefault(); togglePause(); }
     else if (e.code === 'KeyM') toggleOption('music');
     else if (e.code === 'KeyN') toggleOption('sfx');
+    else if (e.code === 'KeyV') toggleOption('narration');
   });
 
   window.addEventListener('keyup', e => {
@@ -1315,7 +1498,9 @@
   });
 
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && S.state === 'playing') togglePause(true);
+    if (!document.hidden) return;
+    if (S.state === 'playing') togglePause(true);
+    if (S.state === 'briefing') Narrator.stop();
   });
 
   // D-pad: pointer events cover mouse, touch and pen with one code path.
@@ -1381,6 +1566,10 @@
     store.set('rel_opts', options);
     syncOptionButtons();
     if (name === 'music' && options.music) Audio.init();
+    if (name === 'narration') {
+      // re-read the mission with the new setting, or fall silent right away
+      if (S.state === 'briefing') narrateMission(); else Narrator.stop();
+    }
   }
 
   function syncOptionButtons() {
@@ -1389,6 +1578,9 @@
     sfx.textContent = options.sfx ? '🔊' : '🔇';
     music.setAttribute('aria-pressed', String(options.music));
     music.textContent = options.music ? '🎵' : '🎶';
+    const narration = $('btnNarration');
+    narration.setAttribute('aria-pressed', String(options.narration));
+    narration.textContent = options.narration ? '🗣️' : '🤐';
   }
 
   function renderMenu() {
@@ -1460,6 +1652,8 @@
   $('btnOverMenu').addEventListener('click', toMenu);
   $('btnPause').addEventListener('click', () => togglePause());
   $('btnSound').addEventListener('click', () => toggleOption('sfx'));
+  $('btnNarration').addEventListener('click', () => toggleOption('narration'));
+  $('btnReplay').addEventListener('click', narrateMission);
   $('btnMusic').addEventListener('click', () => toggleOption('music'));
 
   $('nameForm').addEventListener('submit', e => {
@@ -1531,7 +1725,7 @@
 
   // Test seam: lets the headless smoke test validate all 100 floors without
   // having to duplicate the generator.
-  window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS, state: S };
+  window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS, state: S, options };
 
   /* ======================= boot ======================= */
   syncOptionButtons();

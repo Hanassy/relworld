@@ -211,6 +211,64 @@ function serve() {
   await page.waitForSelector('#overScreen:not([hidden])', { timeout: 4000 }).then(
     () => check('three strikes ends the run', true), () => check('three strikes ends the run', false));
 
+  /* ---- 5. the narrated, cinematic briefing ---- */
+  await page.evaluate(() => document.querySelectorAll('#levelSelectCont .level-btn')[0].click());
+  await page.waitForSelector('#briefingScreen:not([hidden])');
+
+  const words = await page.evaluate(() => ({
+    spans: document.querySelectorAll('#bText .w').length,
+    storyWords: window.RelWorld.state.brief.words.length,
+    text: document.getElementById('bText').textContent.trim().slice(0, 24)
+  }));
+  check('mission text is split into highlightable words', words.spans > 8 && words.spans === words.storyWords,
+    `${words.spans} words`);
+
+  // the establishing shot has to pull back far enough to show the whole floor
+  await page.waitForTimeout(2400);
+  const wide = await page.evaluate(() => {
+    const s = window.RelWorld.state;
+    return { scale: s.scale, alpha: s.buildingAlpha, state: s.state };
+  });
+  check('briefing pulls back to show the whole maze',
+    wide.scale > 0.6 && wide.scale < 0.9 && wide.alpha < 0.05, JSON.stringify(wide));
+
+  // the read-along advances on its own even with no speech voice installed
+  const reading = await page.evaluate(() => {
+    const s = window.RelWorld.state;
+    const first = s.brief.wordIndex;
+    return new Promise(res => setTimeout(() => res({
+      first, later: s.brief.wordIndex, progress: s.brief.progress,
+      highlighted: document.querySelectorAll('#bText .w.now').length,
+      spoken: document.querySelectorAll('#bText .w.said').length
+    }), 2500));
+  });
+  check('words highlight as the mission is read', reading.later > reading.first && reading.highlighted === 1,
+    JSON.stringify(reading));
+
+  // later in the narration the camera moves in on the people on the floor
+  const closeUp = await page.evaluate(() => {
+    const s = window.RelWorld.state;
+    s.brief.progress = 0.45;
+    return new Promise(res => setTimeout(() => res({ scale: s.scale }), 1200));
+  });
+  check('camera zooms in on the participants mid-narration', closeUp.scale > 1.1, JSON.stringify(closeUp));
+
+  check('briefing can be skipped straight into the level', await (async () => {
+    await page.click('#btnGo');
+    await page.waitForFunction(() => window.RelWorld.state.state === 'playing', { timeout: 6000 }).catch(() => {});
+    return page.evaluate(() => window.RelWorld.state.state === 'playing');
+  })());
+
+  check('narration can be switched off', await (async () => {
+    await page.click('#btnPause'); await page.click('#btnPauseMenu');
+    await page.click('#btnNarration');
+    const off = await page.evaluate(() => window.RelWorld.options.narration === false);
+    await page.evaluate(() => document.querySelectorAll('#levelSelectCont .level-btn')[0].click());
+    await page.waitForSelector('#briefingScreen:not([hidden])');
+    const stillShown = await page.evaluate(() => document.querySelectorAll('#bText .w').length > 5);
+    return off && stillShown;   // muted, but the text is still there to read
+  })());
+
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await browser.close();

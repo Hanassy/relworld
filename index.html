@@ -28,6 +28,7 @@
   <div class="toolbar">
     <button type="button" id="btnSound" class="icon-btn" title="צלילים" aria-pressed="true">🔊</button>
     <button type="button" id="btnMusic" class="icon-btn" title="מוזיקה" aria-pressed="true">🎵</button>
+    <button type="button" id="btnNarration" class="icon-btn" title="הקראת משימות (V)" aria-pressed="true">🗣️</button>
     <button type="button" id="btnPause" class="icon-btn" title="השהיה (P)">⏸️</button>
   </div>
 </header>
@@ -70,15 +71,20 @@
     </div>
   </div>
 
-  <!-- ===== תדריך ===== -->
-  <div id="briefingScreen" class="overlayScreen" hidden>
-    <h1 id="bTitle">קומה 1</h1>
-    <div class="missionText" id="bSubtitle">משבר ה-Velocity</div>
-    <p id="bText"></p>
-    <div id="bObjectives" class="objectives"></div>
-    <div class="btn-row">
-      <button type="button" class="main-btn" id="btnGo">לרדת לשטח</button>
-      <button type="button" class="main-btn ghost" id="btnBriefMenu">לתפריט</button>
+  <!-- ===== תדריך קולנועי: המצלמה סוקרת את הקומה בזמן שהמשימה מוקראת ===== -->
+  <div id="briefingScreen" class="overlayScreen cinematic" hidden>
+    <div class="brief-top">
+      <h1 id="bTitle">קומה 1</h1>
+      <div class="missionText" id="bSubtitle">משבר ה-Velocity</div>
+    </div>
+    <div class="brief-bottom">
+      <p id="bText" class="narration" aria-live="off"></p>
+      <div id="bObjectives" class="objectives chips"></div>
+      <div class="btn-row">
+        <button type="button" class="main-btn" id="btnGo">לרדת לשטח</button>
+        <button type="button" class="main-btn ghost" id="btnReplay">🔁 הקרא שוב</button>
+        <button type="button" class="main-btn ghost" id="btnBriefMenu">לתפריט</button>
+      </div>
     </div>
   </div>
 

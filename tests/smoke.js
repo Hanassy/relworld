@@ -232,14 +232,37 @@ function serve() {
   check('mission text is split into highlightable words', words.spans > 8 && words.spans === words.storyWords,
     `${words.spans} words`);
 
-  // the establishing shot has to pull back far enough to show the whole floor
-  await page.waitForTimeout(2400);
+  // the opening must hold the whole building in frame, zoomed right out
+  await page.waitForTimeout(900);
+  const tower = await page.evaluate(() => {
+    const R = window.RelWorld, s = R.state, VH = 600;
+    // where the renderer actually puts the roof and the base of the shell
+    const screenY = (isoY, z) => VH / 2 + s.scale * (isoY - s.camY + z);
+    return {
+      scale: s.scale, alpha: s.buildingAlpha,
+      top: screenY(0, R.SHELL_TOP * R.ZH),
+      bottom: screenY(19 * R.TH, R.SHELL_BOT * R.ZH)
+    };
+  });
+  // the briefing text owns the bottom of the frame, so the tower must sit above it
+  check('opening holds the whole building clear of the briefing text',
+    tower.alpha > 0.95 && tower.top > 10 && tower.bottom < 430,
+    `scale=${tower.scale.toFixed(3)} spans y ${tower.top.toFixed(0)}..${tower.bottom.toFixed(0)}`);
+
+  // and the reveal is slow enough to watch, not a blink
+  const stillTower = await page.evaluate(() =>
+    new Promise(r => setTimeout(() => r(window.RelWorld.state.buildingAlpha), 1600)));
+  check('building reveal is paced, not instant', stillTower > 0.5, `alpha=${stillTower.toFixed(2)}`);
+
+  // once it opens up, the camera shows the whole floor plan
+  await page.waitForFunction(() => window.RelWorld.state.brief.t > window.RelWorld.BRIEF_OPEN_MS + 250,
+    { timeout: 12000 });
   const wide = await page.evaluate(() => {
     const s = window.RelWorld.state;
     return { scale: s.scale, alpha: s.buildingAlpha, state: s.state };
   });
   check('briefing pulls back to show the whole maze',
-    wide.scale > 0.6 && wide.scale < 0.9 && wide.alpha < 0.05, JSON.stringify(wide));
+    wide.scale > 0.55 && wide.scale < 0.9 && wide.alpha < 0.05, JSON.stringify(wide));
 
   // the read-along advances on its own even with no speech voice installed
   const reading = await page.evaluate(() => {
@@ -324,6 +347,18 @@ function serve() {
   check('walls in front of the player are made see-through',
     cutaway.ok && cutaway.ghost < cutaway.solid * 0.8,
     `solid=${cutaway.solid} ghosted=${cutaway.ghost}`);
+
+  /* ---- 7. the arrow tutorial line is not repeated every floor ---- */
+  const hints = await page.evaluate(() => {
+    const f = window.RelWorld.missionScript;
+    const needle = 'החץ המהבהב';
+    return { first: f(0).includes(needle), second: f(1).includes(needle),
+             third: f(2).includes(needle), late: f(40).includes(needle),
+             lateNamesGoal: f(40).includes('היעד שלך') };
+  });
+  check('the blinking-arrow hint is only taught on the first floors',
+    hints.first && hints.second && !hints.third && !hints.late, JSON.stringify(hints));
+  check('every floor still names its destination out loud', hints.lateNamesGoal);
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

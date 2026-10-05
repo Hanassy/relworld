@@ -583,7 +583,13 @@
   };
 
   const INTRO_DUR = 1100;      // the tower dive now lives in the briefing
-  const BRIEF_DESCEND_MS = 1900;
+  const BRIEF_OPEN_MS = 4200;  // the tower reveal: long enough to actually watch
+  // A 58-storey shell could only be framed by shrinking it to a sliver, and its
+  // base ended up behind the briefing text. 36 storeys fit the clear band above
+  // the narration while still reading as a skyscraper.
+  const SHELL_TOP = -17, SHELL_BOT = 19;
+  const TOWER_SCALE = 0.16;    // holds the whole building in the clear band
+  const TOWER_CAM_Y = 815;     // lifts it clear of the briefing text
   const inRoom = (x, y) => !!(S.roomMask && S.roomMask[y] && S.roomMask[y][x]);
   const floorTileUnder = (x, y) => inRoom(x, y) ? TILE.ROOM : TILE.FLOOR;
 
@@ -749,14 +755,17 @@
 
   /** What actually gets read out: the mission, then where to end up. */
   function missionScript(i) {
-    return `${STORY[i].text} היעד שלך: ${goalTag(i)}. החץ המהבהב מצביע לשם לאורך כל הקומה.`;
+    // the blinking-arrow explanation is a tutorial line: say it on the first
+    // couple of floors and then stop repeating it every single briefing
+    const hint = i < 2 ? ' החץ המהבהב מצביע לשם לאורך כל הקומה.' : '';
+    return `${STORY[i].text} היעד שלך: ${goalTag(i)}.${hint}`;
   }
 
   function narrateMission() {
     const story = missionScript(S.level);
     renderNarration(story);
     narrationProgress(0);
-    S.brief.tourBase = S.brief.t >= BRIEF_DESCEND_MS ? 0 : -1;
+    S.brief.tourBase = S.brief.t >= BRIEF_OPEN_MS ? 0 : -1;
     Narrator.speak(story, narrationProgress);
   }
 
@@ -786,7 +795,7 @@
     S.brief.t = 0;
     S.brief.tourBase = -1;
     S.brief.shots = buildShots(f);
-    S.camX = 0; S.camY = -1100; S.scale = 0.13; S.buildingAlpha = 1;
+    S.camX = 0; S.camY = TOWER_CAM_Y; S.scale = TOWER_SCALE; S.buildingAlpha = 1;
     showScreen('briefing');
     narrateMission();
   }
@@ -1095,14 +1104,24 @@
 
     if (S.state === 'briefing') {
       S.brief.t += dt;
-      const d = S.brief.t / BRIEF_DESCEND_MS;
+      const d = S.brief.t / BRIEF_OPEN_MS;
       if (d < 1) {
-        // establishing shot: drop down the tower facade, dissolve the walls
-        const e = smooth(clamp(d, 0, 1));
-        S.scale = 0.13 + e * (WIDE_SCALE - 0.13);
         S.camX = 0;
-        S.camY = -1100 + e * (ISO_MAX_Y / 2 + 1100);
-        S.buildingAlpha = clamp(1 - (d - 0.5) / 0.5, 0, 1);
+        if (d < 0.42) {
+          // Establishing shot: the whole tower in frame, drifting slowly past
+          // it. The old opening started at 0.13 with the camera a thousand
+          // units above the roof, so the building barely registered.
+          const e = smooth(d / 0.42);
+          S.scale = TOWER_SCALE + e * 0.03;
+          S.camY = TOWER_CAM_Y + e * 35;
+          S.buildingAlpha = 1;
+        } else {
+          // then fly into it, dissolving the shell to reveal the floor plan
+          const e = smooth((d - 0.42) / 0.58);
+          S.scale = (TOWER_SCALE + 0.03) + e * (WIDE_SCALE - TOWER_SCALE - 0.03);
+          S.camY = (TOWER_CAM_Y + 35) + e * (ISO_MAX_Y / 2 - TOWER_CAM_Y - 35);
+          S.buildingAlpha = clamp(1 - (d - 0.62) / 0.3, 0, 1);
+        }
       } else {
         // then tour the floor: one shot per slice of the *remaining* narration.
         // Re-basing matters: whatever was read during the descent must not eat
@@ -1139,8 +1158,8 @@
     }
 
     if (S.state === 'menu') {
-      S.scale = 0.13; S.camX = 0; S.buildingAlpha = 1;
-      S.camY = 350 + Math.sin(S.globalTime * 0.004) * 120;
+      S.scale = TOWER_SCALE; S.camX = 0; S.buildingAlpha = 1;
+      S.camY = TOWER_CAM_Y + Math.sin(S.globalTime * 0.004) * 90;
       return;
     }
 
@@ -1336,12 +1355,13 @@
   }
 
   function drawScenery() {
-    poly([pt(-100, -100, 30 * ZH), pt(100, -100, 30 * ZH), pt(100, 100, 30 * ZH), pt(-100, 100, 30 * ZH)], '#05080c');
-    poly([pt(-60, 23, 29.9 * ZH), pt(60, 23, 29.9 * ZH), pt(60, 26, 29.9 * ZH), pt(-60, 26, 29.9 * ZH)], '#111');
+    const gz = SHELL_BOT * ZH;
+    poly([pt(-100, -100, gz), pt(100, -100, gz), pt(100, 100, gz), pt(-100, 100, gz)], '#05080c');
+    poly([pt(-60, 23, gz - 3), pt(60, 23, gz - 3), pt(60, 26, gz - 3), pt(-60, 26, gz - 3)], '#111');
 
     const car1 = ((S.globalTime * 0.4) % 120) - 60;
     const car2 = 60 - ((S.globalTime * 0.5) % 120);
-    const c1 = pt(car1, 24, 29.8 * ZH), c2 = pt(car2, 25.5, 29.8 * ZH);
+    const c1 = pt(car1, 24, gz - 6), c2 = pt(car2, 25.5, gz - 6);
     ctx.fillStyle = '#ff3333'; ctx.beginPath(); ctx.arc(c1.x, c1.y, 3, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#eeeeee'; ctx.beginPath(); ctx.arc(c2.x, c2.y, 3, 0, Math.PI * 2); ctx.fill();
 
@@ -1351,20 +1371,21 @@
       poly([rightC, botC, pt(bx + w, by + h, zB), pt(bx + w, by, zB)], r);
       poly([topC, rightC, botC, leftC], t);
     };
-    bg(-25, -10, 15, 12, -20 * ZH, 30 * ZH, '#101622', '#0a0d15', '#1a2230');
-    bg(25, -5, 18, 14, -25 * ZH, 30 * ZH, '#091016', '#05080c', '#111a22');
-    bg(-10, 30, 12, 12, -10 * ZH, 30 * ZH, '#161c22', '#10141a', '#222a33');
+    bg(-25, -10, 15, 12, -11 * ZH, gz, '#101622', '#0a0d15', '#1a2230');
+    bg(25, -5, 18, 14, -14 * ZH, gz, '#091016', '#05080c', '#111a22');
+    bg(-10, 30, 12, 12, -6 * ZH, gz, '#161c22', '#10141a', '#222a33');
   }
 
   function drawTowerShell() {
-    const zTop = -30 * ZH, zBot = 30 * ZH;
+    const zTop = SHELL_TOP * ZH, zBot = SHELL_BOT * ZH;
     const topC = pt(0, 0, zTop), leftC = pt(0, 20, zTop), rightC = pt(20, 0, zTop), botC = pt(20, 20, zTop);
     poly([leftC, botC, pt(20, 20, zBot), pt(0, 20, zBot)], '#162030');
     poly([rightC, botC, pt(20, 20, zBot), pt(20, 0, zBot)], '#0c1320');
     poly([topC, rightC, botC, leftC], '#08101a');
 
-    const activeFloor = 12 - (S.level % 35);
-    for (let f = -28; f < 30; f++) {
+    // the lit floor climbs the tower as the career goes up
+    const activeFloor = SHELL_TOP + 3 + (S.level % 30);
+    for (let f = SHELL_TOP + 1; f < SHELL_BOT; f++) {
       const z = f * ZH;
       const active = (f === activeFloor);
       // a pseudo-random set of windows is dark, so the tower looks inhabited
@@ -1895,7 +1916,9 @@
 
   // Test seam: lets the headless smoke test validate all 100 floors without
   // having to duplicate the generator.
-  window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS, state: S, options };
+  window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS,
+                      state: S, options, BRIEF_OPEN_MS, TOWER_SCALE, missionScript,
+                      SHELL_TOP, SHELL_BOT, ZH, TH };
 
   /* ======================= boot ======================= */
   syncOptionButtons();

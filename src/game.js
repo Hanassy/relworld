@@ -12,12 +12,15 @@
     MEETING: 15, HR: 16, MKEY: 17, MDOOR: 18, MDOOR_OPEN: 19
   };
   const MAP_W = 20, MAP_H = 20, FLOORS = 100;
-  const TW = 60, TH = 35, ZH = 55;          // iso tile width / height / wall height
+  // Tile height close to half the width would be a low, side-on view where tall
+  // walls hide half the floor. A taller TH tips the camera towards top-down,
+  // and the shorter wall height keeps sight lines open.
+  const TW = 60, TH = 46, ZH = 34;          // iso tile width / height / wall height
   const VIEW_W = 1000, VIEW_H = 600;        // logical canvas units
   const MOVE_MS = 115;                      // grid step cadence while a key is held
   const COMBO_MS = 2600;                    // window to keep a combo alive
   const MAX_STRIKES = 3;
-  const HR_POS = { x: 18, y: 1 };           // goal tile of every floor
+  const WIDE_SCALE = 0.62;                  // pulls back far enough for the whole floor
   const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0]];
 
   const isDesk = t => t === TILE.DESK || t === TILE.DESK_SAD || t === TILE.DESK_UP || t === TILE.DESK_UP_SAD;
@@ -59,38 +62,38 @@
 
   /* ======================= story content ======================= */
   const STORY = [
-    { title: 'קומה 1', subtitle: 'משבר ה-Velocity', type: 0,
+    { title: 'קומה 1', subtitle: 'משבר ה-Velocity', type: 0, goal: 'מעלית',
       text: 'המנכ"ל רותח. התפוקה ירדה והמשקיעים בלחץ. עליך לשדרג את המחשבים עם GPU ירוק, ולחלק צ\'אפחות האצה לכולם. בסיום, תגיע למעלית (🔼).' },
-    { title: 'קומה 2', subtitle: 'המאבק על ה-Grooming', type: 1,
+    { title: 'קומה 2', subtitle: 'המאבק על ה-Grooming', type: 1, goal: 'GROOMING',
       text: 'צ\'אד (👺) מתכנן לקחת קרדיט. עליך לאסוף את התקציב, להעיף צ\'אפחות לעובדים, ולהגיע לישיבה (🗓️). נעל אותו בדרך!' },
-    { title: 'קומה 3', subtitle: 'המירוץ ל-HR', type: 2,
+    { title: 'קומה 3', subtitle: 'המירוץ ל-HR', type: 2, goal: 'HR',
       text: 'התגנב לצ\'אד ופוצץ אותו בצ\'אפחה! הוא יטוס להתלונן ב-HR (👩‍⚖️). השג אותו בריצה לשם כדי להשתיק את התיק!' }
   ];
 
   const THEMES = [
-    { t: 'חזרה למשרד', s: 'RTO של אילון מאסק', type: 0,
+    { t: 'חזרה למשרד', s: 'RTO של אילון מאסק', type: 0, goal: 'מעלית',
       d: 'אילון צייץ שכולם חוזרים או עפים! אסוף את ה-GPU, תן צ\'אפחות לאלו שחולמים על הבית, ורוץ למעלית.' },
-    { t: 'תרמית מס', s: 'איי קיימן קוראים לנו', type: 1,
+    { t: 'תרמית מס', s: 'איי קיימן קוראים לנו', type: 1, goal: 'ישיבה',
       d: 'רשות המיסים פשטה על הקומה. אסוף מהר את מזומני החברה, חלק צ\'אפחות למדליפים, וברח לישיבה.' },
-    { t: 'פיטורים ב-SMS', s: 'קיצוצים באישון לילה', type: 2,
+    { t: 'פיטורים ב-SMS', s: 'קיצוצים באישון לילה', type: 2, goal: 'HR',
       d: 'שלחת SMS ל-50% מהחברה. השתק את נציג העובדים (👺) בצ\'אפחה, ורוץ מהר ל-HR לפני הלינץ\'!' },
-    { t: 'Fake It Till You Make It', s: 'מצגת ל-VC', type: 1,
+    { t: 'Fake It Till You Make It', s: 'מצגת ל-VC', type: 1, goal: 'VC',
       d: 'המוצר קורס אבל הקרן בדרך! לקט נתונים פיקטיביים (🪙), העף צ\'אפחות לעובדים שייראו עסוקים, והגע לחדר הישיבות.' },
-    { t: 'חזון המייסד', s: 'סטיב ג\'ובס סטייל', type: 0,
+    { t: 'חזון המייסד', s: 'סטיב ג\'ובס סטייל', type: 0, goal: 'מעלית',
       d: 'פזר כרטיסי מסך (GPU) לשדרוג הפרויקט, הרבץ למי ששואל שאלות על החזון, ורד למעלית בסטייל.' },
-    { t: 'בריחה מישיבה', s: 'Could be an email', type: 2,
+    { t: 'בריחה מישיבה', s: 'Could be an email', type: 2, goal: 'HR',
       d: 'הישיבה לא נגמרת. תן צ\'אפחה משתיקה לחופר הראשי (👺), העֵר את העובדים שנרדמו, וברח ל-HR.' },
-    { t: 'יוניקורן או קרטון', s: 'סבב גיוס במיליארד', type: 1,
+    { t: 'יוניקורן או קרטון', s: 'סבב גיוס במיליארד', type: 1, goal: 'דירקטוריון',
       d: 'השווי נקבע לפי כמה מזומן נראה בקופה. אסוף כל שקל שמתגלגל, חלק צ\'אפחות מוטיבציה, והגע לישיבת הדירקטוריון.' },
-    { t: 'מהפכת ה-AI', s: 'פרומפט אחד קטן לאדם', type: 0,
+    { t: 'מהפכת ה-AI', s: 'פרומפט אחד קטן לאדם', type: 0, goal: 'מעלית',
       d: 'הבטחת לדירקטוריון שהכל ירוץ על AI. חלק GPU לכל עמדה, העֵר את מי שעוד כותב קוד ביד, ורד למעלית.' },
-    { t: 'סטנדאפ של 90 דקות', s: 'אג\'ייל זה סטייט אוף מיינד', type: 2,
+    { t: 'סטנדאפ של 90 דקות', s: 'אג\'ייל זה סטייט אוף מיינד', type: 2, goal: 'HR',
       d: 'הסקראם מאסטר (👺) רוצה לדווח עליך. סתום לו את הפה בצ\'אפחה והגע ל-HR לפניו.' },
-    { t: 'מיזוג ורכישה', s: 'Synergy, חברים', type: 1,
+    { t: 'מיזוג ורכישה', s: 'Synergy, חברים', type: 1, goal: 'אינטגרציה',
       d: 'קנינו מתחרה בשביל שלושה עובדים. אסוף את התקציב שנשאר, עורר את הנרכשים, ורוץ לישיבת האינטגרציה.' },
-    { t: 'הצ\'ק-אין הרבעוני', s: 'OKR ל-Q5', type: 0,
+    { t: 'הצ\'ק-אין הרבעוני', s: 'OKR ל-Q5', type: 0, goal: 'מעלית',
       d: 'היעדים לא הושגו, אז שינינו את היעדים. שדרג את כל העמדות ב-GPU, חלק צ\'אפחות יישור קו, וסע במעלית.' },
-    { t: 'פעמון בנאסד"ק', s: 'IPO או אוטובוס', type: 1,
+    { t: 'פעמון בנאסד"ק', s: 'IPO או אוטובוס', type: 1, goal: 'אנליסטים',
       d: 'יום לפני ההנפקה. אסוף כל מטבע שאפשר להציג כהכנסה, העֵר את צוות הכספים, והגע לישיבת האנליסטים.' }
   ];
 
@@ -101,6 +104,10 @@
 
   const GOAL_TILE = [TILE.ELEVATOR, TILE.MEETING, TILE.HR];
   const GOAL_NAME = ['המעלית 🔼', 'חדר הישיבות 🗓️', 'משרד HR 👩‍⚖️'];
+  const GOAL_ICON = ['🔼', '🗓️', '👩‍⚖'];
+  const GOAL_FALLBACK = ['מעלית', 'ישיבה', 'HR'];
+  // short sign-posting name, shown on the blinking waypoint arrow all game long
+  const goalTag = i => STORY[i].goal || GOAL_FALLBACK[STORY[i].type];
 
   /* ======================= audio ======================= */
   const Audio = (function () {
@@ -248,7 +255,7 @@
       stop();
       onProgress = progressCb;
       boundarySeen = false;
-      estimate = Math.max(2600, text.length * 62);   // rough Hebrew read-along pace
+      estimate = Math.max(2600, text.length * 55);   // rough Hebrew read-along pace
 
       const { voice, known } = hebrewVoice();
       const canSpeak = options.narration && synth && window.SpeechSynthesisUtterance && (voice || !known);
@@ -395,7 +402,6 @@
     const map = LAYOUT.map(row => row.slice());
     const story = STORY[index];
 
-    map[HR_POS.y][HR_POS.x] = GOAL_TILE[story.type];
     applyVariant(map, index % 6, rnd);
 
     // start tile must be walkable (this is the old spawn-inside-a-wall bug)
@@ -413,6 +419,26 @@
     }
 
     let seen = reachableFrom(map, start.x, start.y);
+
+    // The exit is NOT always in the same corner: pick a reachable tile a decent
+    // walk away from the start, seeded so a given floor always matches itself.
+    const fromStartEarly = distanceField(map, start.x, start.y);
+    const goalPicks = [];
+    for (let y = 1; y < MAP_H - 1; y++) {
+      for (let x = 1; x < MAP_W - 1; x++) {
+        const t = map[y][x];
+        if (t !== TILE.FLOOR && t !== TILE.ROOM && t !== TILE.COIN) continue;
+        if (!seen[y][x]) continue;
+        const d = fromStartEarly[y][x];
+        if (d === Infinity || d < 12) continue;      // never right next to spawn
+        goalPicks.push({ x, y, d });
+      }
+    }
+    goalPicks.sort((a, b) => b.d - a.d);
+    // choose among the farthest third, so the exit is always a real journey
+    const pool = goalPicks.slice(0, Math.max(1, Math.ceil(goalPicks.length / 3)));
+    const goal = pool.length ? pool[Math.floor(rnd() * pool.length)] : { x: 18, y: 1 };
+    map[goal.y][goal.x] = GOAL_TILE[story.type];
 
     // room mask drives the camera zoom and the "put the floor back" tile colour
     const roomMask = Array.from({ length: MAP_H }, () => new Array(MAP_W).fill(false));
@@ -457,7 +483,7 @@
 
     // the goal itself must be reachable, otherwise the floor is a dead end
     seen = reachableFrom(map, start.x, start.y);
-    if (!seen[HR_POS.y][HR_POS.x]) {
+    if (!seen[goal.y][goal.x]) {
       map[7][16] = TILE.DOOR; // re-open the right wing
       seen = reachableFrom(map, start.x, start.y);
     }
@@ -498,6 +524,7 @@
       for (let x = 1; x < MAP_W - 1; x++) {
         const t = map[y][x];
         if (t === TILE.WALL || isDesk(t) || isDoor(t)) continue;
+        if (x === goal.x && y === goal.y) continue;
         if (fromStart[y][x] === Infinity || fromStart[y][x] < 8) continue;
         spawns.push({ x, y, d: fromStart[y][x] });
       }
@@ -514,7 +541,8 @@
                : 110 + desks * 3;
     const time = clamp(base - Math.floor(index / 6) * 4, 110, 240);
 
-    return { map, roomMask, start, spawns, desks, coins, coinQuota, time, type: story.type };
+    return { map, roomMask, start, spawns, goal, desks, coins, coinQuota, time,
+             type: story.type, tag: goalTag(index) };
   }
 
   /* ======================= DOM ======================= */
@@ -600,7 +628,7 @@
     // the boss slap starts the sprint, so it has to be the last thing you do
     if (f.type === 2) list.push({ label: 'ואז: צ\'אפחה לבוסניק 👺', done: S.chadSlapped });
     const ready = list.every(o => o.done);
-    list.push({ label: `הגע ל${GOAL_NAME[f.type]}`, done: false, goal: true });
+    list.push({ label: `הגע ל-${f.tag} ${GOAL_ICON[f.type]}`, done: false, goal: true });
     return { list, ready };
   }
 
@@ -661,7 +689,7 @@
   /** Camera shots for the briefing: the whole floor first, then the people. */
   function buildShots(f) {
     const iso = (x, y) => ({ x: (x - y) * TW / 2, y: (x + y) * TH / 2 });
-    const wide = { x: 0, y: ISO_MAX_Y / 2, scale: 0.72 };
+    const wide = { x: 0, y: ISO_MAX_Y / 2, scale: WIDE_SCALE };
     const shots = [wide];
 
     // group desks into crowds, so the camera frames a team and not one chair
@@ -677,8 +705,9 @@
     clusters.sort((a, b) => b.n - a.n);
     for (const c of clusters.slice(0, 2)) shots.push(Object.assign(iso(c.x, c.y), { scale: 1.5 }));
     if (S.rivals.length) shots.push(Object.assign(iso(S.rivals[0].x, S.rivals[0].y), { scale: 1.75 }));
-    shots.push(Object.assign(iso(HR_POS.x, HR_POS.y), { scale: 1.6 }));
-    shots.push(wide);
+    // close on the exit and hold it: the last thing you see is where to go
+    const goalShot = Object.assign(iso(f.goal.x, f.goal.y), { scale: 1.55 });
+    shots.push(goalShot, goalShot);
     return shots;
   }
 
@@ -718,12 +747,17 @@
     }
   }
 
+  /** What actually gets read out: the mission, then where to end up. */
+  function missionScript(i) {
+    return `${STORY[i].text} היעד שלך: ${goalTag(i)}. החץ המהבהב מצביע לשם לאורך כל הקומה.`;
+  }
+
   function narrateMission() {
-    const story = STORY[S.level];
-    renderNarration(story.text);
+    const story = missionScript(S.level);
+    renderNarration(story);
     narrationProgress(0);
     S.brief.tourBase = S.brief.t >= BRIEF_DESCEND_MS ? 0 : -1;
-    Narrator.speak(story.text, narrationProgress);
+    Narrator.speak(story, narrationProgress);
   }
 
   function openBriefing(level, resetRun) {
@@ -744,7 +778,7 @@
       f.type === 1 ? `🪙 אסוף ${f.coinQuota} יחידות תקציב` : '',
       f.type === 2 ? '👺 ולבסוף: צ\'אפחה לבוסניק ומירוץ ל-HR' : '',
       `🖐️ ${f.desks} צ'אפחות לעובדים`,
-      `🏁 יעד: ${GOAL_NAME[f.type]}`,
+      `🏁 יעד: ${f.tag} — ${GOAL_NAME[f.type]}`,
       `⏳ ${Math.floor(f.time / 60)}:${String(f.time % 60).padStart(2, '0')} על השעון`
     ].filter(Boolean).map(line => `<div>${line}</div>`).join('');
 
@@ -1023,7 +1057,7 @@
       if (r.acc < r.speed) continue;
       r.acc = 0;
 
-      const target = r.state === 'raceHR' ? HR_POS : { x: S.player.x, y: S.player.y };
+      const target = r.state === 'raceHR' ? S.floor.goal : { x: S.player.x, y: S.player.y };
       const field = distanceField(S.map, target.x, target.y);
       let best = null, bestDist = field[r.y][r.x];
       if (bestDist === Infinity) bestDist = Infinity;
@@ -1040,7 +1074,7 @@
       }
       if (best) { r.x = best[0]; r.y = best[1]; }
 
-      if (r.state === 'raceHR' && r.x === HR_POS.x && r.y === HR_POS.y) {
+      if (r.state === 'raceHR' && r.x === S.floor.goal.x && r.y === S.floor.goal.y) {
         gameOver('המנהל המקביל הגיע ל-HR לפניך. התיק נפתח, אתה נסגר.', false);
         return;
       }
@@ -1065,7 +1099,7 @@
       if (d < 1) {
         // establishing shot: drop down the tower facade, dissolve the walls
         const e = smooth(clamp(d, 0, 1));
-        S.scale = 0.13 + e * (0.72 - 0.13);
+        S.scale = 0.13 + e * (WIDE_SCALE - 0.13);
         S.camX = 0;
         S.camY = -1100 + e * (ISO_MAX_Y / 2 + 1100);
         S.buildingAlpha = clamp(1 - (d - 0.5) / 0.5, 0, 1);
@@ -1083,7 +1117,8 @@
         S.scale += (shot.scale - S.scale) * ease;
         S.camX += (shot.x - S.camX) * ease;
         S.camY += (shot.y - S.camY) * ease;
-        clampCameraToFloor();
+        // deliberately unclamped: this is a cutscene, and an exit near the edge
+        // of the floor still has to end up centred in its closing shot
       }
       return;
     }
@@ -1129,7 +1164,7 @@
     const halfW = VIEW_W / (2 * S.scale), halfH = VIEW_H / (2 * S.scale);
     const loX = ISO_MIN_X - TW + halfW, hiX = ISO_MAX_X + TW - halfW;
     S.camX = loX > hiX ? (ISO_MIN_X + ISO_MAX_X) / 2 : clamp(S.camX, loX, hiX);
-    const loY = -ZH - TH * 2 + halfH, hiY = ISO_MAX_Y + TH * 2 - halfH;
+    const loY = -ZH - TH * 0.5 + halfH, hiY = ISO_MAX_Y + TH * 0.5 - halfH;
     S.camY = loY > hiY ? ISO_MAX_Y / 2 : clamp(S.camY, loY, hiY);
   }
 
@@ -1152,6 +1187,121 @@
     ctx.lineTo(x, y + TH - z); ctx.lineTo(x - TW / 2, y + TH / 2 - z);
     ctx.closePath(); ctx.fillStyle = cTop; ctx.fill();
     if (!isDoorBlock) { ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.stroke(); }
+  }
+
+  function shiftColor(hex, delta) {
+    const n = parseInt(hex.slice(1), 16);
+    const r = clamp(((n >> 16) & 255) + delta, 0, 255);
+    const g = clamp(((n >> 8) & 255) + delta, 0, 255);
+    const b = clamp((n & 255) + delta, 0, 255);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  function groundShadow(x, y, r) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.33)';
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, r * 0.45, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function roundRectPath(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  /** The cyan name plate that marks where this floor wants you to end up. */
+  function signPlate(x, y, label, alpha, pointDown) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold 15px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(label).width + 18;
+    ctx.fillStyle = 'rgba(0,18,26,0.9)';
+    ctx.strokeStyle = '#00e5ff';
+    ctx.lineWidth = 2;
+    roundRectPath(x - w / 2, y - 12, w, 24, 6);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#00e5ff';
+    ctx.fillText(label, x, y);
+    if (pointDown) {
+      ctx.beginPath();
+      ctx.moveTo(x - 8, y + 13); ctx.lineTo(x + 8, y + 13); ctx.lineTo(x, y + 25);
+      ctx.closePath();
+      ctx.fillStyle = '#00e5ff';
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** Goal tile: glowing floor pool, expanding ring, icon and a blinking sign. */
+  function drawGoalBeacon(x, y, val, ready) {
+    const t = S.globalTime;
+    const blink = 0.55 + 0.45 * Math.sin(t * 0.18);
+    ctx.save();
+    const glow = ctx.createRadialGradient(x, y, 2, x, y, 48);
+    glow.addColorStop(0, `rgba(0,229,255,${(ready ? 0.42 : 0.26) * blink})`);
+    glow.addColorStop(1, 'rgba(0,229,255,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.ellipse(x, y, 48, 28, 0, 0, Math.PI * 2);
+    ctx.fill();
+    const rp = (t * 0.9) % 60;
+    ctx.strokeStyle = `rgba(0,229,255,${Math.max(0, 1 - rp / 60) * 0.85})`;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.ellipse(x, y, 10 + rp * 0.5, (10 + rp * 0.5) * 0.56, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.font = '26px Arial';
+    ctx.fillStyle = '#fff';
+    const icon = val === TILE.ELEVATOR ? GOAL_ICON[0] : val === TILE.MEETING ? GOAL_ICON[1] : GOAL_ICON[2];
+    ctx.fillText(icon, x, y - 8);
+    signPlate(x, y - 56 + Math.sin(t * 0.12) * 4, S.floor ? S.floor.tag : '', 0.45 + 0.55 * blink, true);
+  }
+
+  /** When the goal is off screen, pin a blinking arrow to the edge pointing at
+      it, so you always know where this floor wants you to go. */
+  function drawGoalCompass(sx, sy) {
+    if (!S.floor) return;
+    const g = S.floor.goal;
+    const wx = cx0 + (g.x - g.y) * TW / 2 - S.camX;
+    const wy = cy0 + (g.x + g.y) * TH / 2 - S.camY;
+    const px = cx0 + sx + S.scale * (wx - cx0);
+    const py = cy0 + sy + S.scale * (wy - cy0);
+    // The top strip belongs to the minimap and the task panel: a goal sitting
+    // under either of them counts as hidden, so the edge arrow takes over.
+    const m = 70, mTop = 168;
+    if (px > m && px < VIEW_W - m && py > mTop && py < VIEW_H - m) return;
+
+    const ex = clamp(px, m, VIEW_W - m), ey = clamp(py, mTop, VIEW_H - m);
+    const ang = Math.atan2(py - cy0, px - cx0);
+    const blink = 0.5 + 0.5 * Math.sin(S.globalTime * 0.22);
+
+    ctx.save();
+    ctx.translate(ex, ey);
+    ctx.save();
+    ctx.globalAlpha = 0.45 + 0.55 * blink;
+    ctx.rotate(ang);
+    ctx.beginPath();
+    ctx.moveTo(30, 0); ctx.lineTo(-10, -18); ctx.lineTo(-1, 0); ctx.lineTo(-10, 18);
+    ctx.closePath();
+    ctx.fillStyle = '#00e5ff';
+    ctx.shadowColor = '#00e5ff';
+    ctx.shadowBlur = 16;
+    ctx.fill();
+    ctx.restore();
+    signPlate(0, ey > VIEW_H / 2 ? -34 : 34, S.floor.tag, 0.5 + 0.5 * blink, false);
+    ctx.restore();
   }
 
   function drawIsoTile(x, y, color, room) {
@@ -1253,7 +1403,9 @@
         else if (t === TILE.DOOR) c = '#ff8800';
         else if (t === TILE.MDOOR) c = '#ff2222';
         else if (t === TILE.MDOOR_OPEN) c = '#772222';
-        else if (t === TILE.ELEVATOR || t === TILE.MEETING || t === TILE.HR) c = '#00ffff';
+        else if (t === TILE.ELEVATOR || t === TILE.MEETING || t === TILE.HR) {
+          c = (Math.sin(S.globalTime * 0.18) > 0) ? '#00ffff' : '#006672';   // blinks
+        }
         else c = S.roomMask[y][x] ? '#33281e' : '#1d2430';
         ctx.fillStyle = c;
         ctx.fillRect(pad + x * s, pad + y * s, s, s);
@@ -1294,7 +1446,8 @@
         { t: '#2c3e50', l: '#34495e', r: '#2c3e50' }, { t: '#27ae60', l: '#2ecc71', r: '#27ae60' },
         { t: '#c0392b', l: '#e74c3c', r: '#c0392b' }, { t: '#8e44ad', l: '#9b59b6', r: '#8e44ad' }
       ];
-      const pal = palettes[S.level % palettes.length];
+      const base = palettes[S.level % palettes.length];
+      const pal = { t: shiftColor(base.t, 14), l: base.l, r: shiftColor(base.r, -26) };
       const bop = Math.sin(S.globalTime * 0.15) * 2;
 
       for (let y = 0; y < MAP_H; y++) {
@@ -1306,16 +1459,25 @@
 
           ctx.globalAlpha = innerAlpha;
           if (val !== TILE.WALL && val !== TILE.DOOR && val !== TILE.MDOOR) {
-            drawIsoTile(pX, pY, S.roomMask[y][x] ? '#3a2518' : '#111', S.roomMask[y][x]);
+            const room = S.roomMask[y][x];
+            // a little per-tile noise so large floors do not read as flat colour
+            const n = ((x * 7 + y * 13) % 5) - 2;
+            drawIsoTile(pX, pY, room ? shiftColor('#3a2518', n * 5) : shiftColor('#14161c', n * 4), room);
           }
           if (val === TILE.WALL) {
+            // Cut away walls standing between the camera and the player: in this
+            // projection anything further along x+y is drawn on top of them.
+            const ox = x - S.player.x, oy = y - S.player.y;
+            const occluding = detailed && ox >= 0 && oy >= 0 && ox + oy > 0 && ox + oy <= 3;
+            if (occluding) ctx.globalAlpha = innerAlpha * 0.34;
             drawWallBlock(pX, pY, ZH, pal.t, pal.l, pal.r, false);
+            ctx.globalAlpha = innerAlpha;
           } else if (val === TILE.DOOR) {
             drawWallBlock(pX, pY, ZH, 'rgba(255,100,0,0.5)', 'rgba(255,80,0,0.7)', 'rgba(200,50,0,0.8)', true);
-            if (detailed) { ctx.font = '18px Arial'; ctx.fillStyle = '#fff'; ctx.fillText('🔒', pX, pY - ZH + 18); }
+            if (detailed) { ctx.font = '18px Arial'; ctx.fillStyle = '#fff'; ctx.fillText('🔒', pX, pY - ZH + 12); }
           } else if (val === TILE.MDOOR) {
             drawWallBlock(pX, pY, ZH, 'rgba(255,50,50,0.5)', 'rgba(200,20,20,0.7)', 'rgba(150,10,10,0.8)', true);
-            if (detailed) { ctx.font = '20px Arial'; ctx.fillStyle = '#fff'; ctx.fillText('🔏', pX, pY - ZH + 20); }
+            if (detailed) { ctx.font = '20px Arial'; ctx.fillStyle = '#fff'; ctx.fillText('🔏', pX, pY - ZH + 13); }
           }
           ctx.globalAlpha = 1;
           if (!detailed) continue;
@@ -1326,31 +1488,38 @@
           else if (val === TILE.KEY) ctx.fillText('🔑', pX, pY + bop);
           else if (val === TILE.MKEY) ctx.fillText('🗝', pX, pY + bop);
           else if (val === TILE.ELEVATOR || val === TILE.MEETING || val === TILE.HR) {
-            if (ready) {
-              const pulse = 10 + Math.sin(S.globalTime * 0.2) * 5;
-              ctx.strokeStyle = 'rgba(0,255,255,0.8)';
-              ctx.lineWidth = 2;
-              ctx.beginPath(); ctx.arc(pX, pY, pulse, 0, Math.PI * 2); ctx.stroke();
-            }
-            ctx.fillText(val === TILE.ELEVATOR ? '🔼' : val === TILE.MEETING ? '🗓️' : '👩‍⚖', pX, pY - 10);
+            drawGoalBeacon(pX, pY, val, ready);
           } else if (val === TILE.GPU) {
-            ctx.fillStyle = '#0f0'; ctx.fillRect(pX - 12, pY - 10 + bop, 24, 12);
-            ctx.fillStyle = '#000'; ctx.font = 'bold 9px Arial';
+            ctx.save();
+            ctx.shadowColor = '#0f0'; ctx.shadowBlur = 7;
+            ctx.fillStyle = '#19d419'; ctx.fillRect(pX - 11, pY - 9 + bop, 22, 11);
+            ctx.restore();
+            ctx.fillStyle = '#042604'; ctx.font = 'bold 8px Arial';
             ctx.fillText('GPU', pX, pY - 1 + bop);
           } else if (isDesk(val)) {
             const upgraded = (val === TILE.DESK_UP || val === TILE.DESK_UP_SAD);
             const sad = (val === TILE.DESK_SAD || val === TILE.DESK_UP_SAD);
             const z = 15;
-            ctx.fillStyle = '#222';
+            groundShadow(pX, pY, 19);
+            ctx.fillStyle = '#1b1b1f';
             ctx.fillRect(pX - 15, pY - z + 5, 4, 15);
             ctx.fillRect(pX + 10, pY - z + 5, 4, 15);
             ctx.beginPath();
             ctx.moveTo(pX, pY - z); ctx.lineTo(pX + 20, pY - z + 10);
             ctx.lineTo(pX, pY - z + 20); ctx.lineTo(pX - 20, pY - z + 10);
-            ctx.closePath(); ctx.fillStyle = '#a67b5b'; ctx.fill();
+            ctx.closePath();
+            ctx.fillStyle = '#9b7352'; ctx.fill();
+            ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1; ctx.stroke();
+            // a lit monitor on the desk: green once it has been given a GPU
+            ctx.save();
+            ctx.shadowColor = upgraded ? '#0f0' : '#39f';
+            ctx.shadowBlur = 9;
+            ctx.fillStyle = upgraded ? '#0f0' : '#2f6fae';
+            ctx.fillRect(pX - 11, pY - z - 6, 16, 9);
+            ctx.restore();
             if (upgraded) {
-              ctx.fillStyle = '#0f0'; ctx.fillRect(pX - 10, pY - z - 5, 15, 8);
-              ctx.fillStyle = '#000'; ctx.font = '7px Arial'; ctx.fillText('GPU', pX - 2, pY - z + 2);
+              ctx.fillStyle = '#000'; ctx.font = 'bold 7px Arial';
+              ctx.fillText('GPU', pX - 3, pY - z + 1);
             }
             const hop = sad ? 0 : Math.max(0, Math.sin(S.globalTime * 0.25) * 4);
             ctx.font = '24px Arial'; ctx.fillStyle = '#fff';
@@ -1359,6 +1528,7 @@
 
           for (const r of S.rivals) {
             if (r.x !== x || r.y !== y) continue;
+            groundShadow(pX, pY, 14);
             ctx.font = '24px Arial'; ctx.fillStyle = '#fff';
             ctx.globalAlpha = r.stun > 0 ? 0.55 : 1;
             ctx.fillText(r.stun > 0 ? '💫' : r.state === 'raceHR' ? '🏃‍♂️' : '👺', pX, pY - 5);
@@ -1427,7 +1597,7 @@
     }
     ctx.restore();
 
-    if (detailed) drawMinimap();
+    if (detailed) { drawMinimap(); drawGoalCompass(sx, sy); }
 
     // vignette keeps the eye on the middle of the floor
     const vg = ctx.createRadialGradient(cx0, cy0, VIEW_H * 0.35, cx0, cy0, VIEW_H * 0.95);

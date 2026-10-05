@@ -55,13 +55,20 @@ function serve() {
   const audit = await page.evaluate(() => {
     const { buildFloor, reachableFrom, TILE, isDesk, FLOORS } = window.RelWorld;
     const problems = [];
+    const goalSpots = new Set();
     let minTime = Infinity, maxTime = 0;
     for (let i = 0; i < FLOORS; i++) {
       const f = buildFloor(i), m = f.map;
       const startTile = m[f.start.y][f.start.x];
       if (startTile === TILE.WALL || isDesk(startTile)) problems.push(`L${i + 1}: start inside a wall/desk`);
       const seen = reachableFrom(m, f.start.x, f.start.y);
-      if (!seen[1][18]) problems.push(`L${i + 1}: goal unreachable`);
+      if (!seen[f.goal.y][f.goal.x]) problems.push(`L${i + 1}: goal unreachable`);
+      goalSpots.add(f.goal.x + ',' + f.goal.y);
+      const goalTile = m[f.goal.y][f.goal.x];
+      if (goalTile !== TILE.ELEVATOR && goalTile !== TILE.MEETING && goalTile !== TILE.HR) {
+        problems.push(`L${i + 1}: goal tile not stamped`);
+      }
+      if (!f.tag) problems.push(`L${i + 1}: no destination name`);
 
       let gpus = 0, desks = 0, coins = 0, keys = 0, doors = 0;
       for (let y = 0; y < 20; y++) for (let x = 0; x < 20; x++) {
@@ -88,11 +95,12 @@ function serve() {
       minTime = Math.min(minTime, f.time); maxTime = Math.max(maxTime, f.time);
     }
     const deterministic = JSON.stringify(buildFloor(42).map) === JSON.stringify(buildFloor(42).map);
-    return { problems: [...new Set(problems)], minTime, maxTime, deterministic };
+    return { problems: [...new Set(problems)], minTime, maxTime, deterministic, goalSpots: goalSpots.size };
   });
   check('all 100 floors are completable', audit.problems.length === 0, audit.problems.slice(0, 5).join('; '));
   check('floor generation is deterministic', audit.deterministic);
   check('time budget varies per floor', audit.maxTime - audit.minTime > 30, `${audit.minTime}-${audit.maxTime}s`);
+  check('the exit is not always in the same place', audit.goalSpots > 8, `${audit.goalSpots} distinct exits`);
 
   /* ---- 2. play floor 1 from the menu to the clear screen ---- */
   await page.click('#btnNewCareer');
@@ -126,7 +134,8 @@ function serve() {
     for (let n = 0; n < 300; n++) {
       if (s.state !== 'playing') return { reached: true, steps: n };
       const dist = Array.from({ length: H }, () => new Array(W).fill(Infinity));
-      const q = [[18, 1]]; dist[1][18] = 0;
+      const g = s.floor.goal;
+      const q = [[g.x, g.y]]; dist[g.y][g.x] = 0;
       for (let h = 0; h < q.length; h++) {
         const [x, y] = q[h];
         for (const [dx, dy] of D) {
@@ -268,6 +277,53 @@ function serve() {
     const stillShown = await page.evaluate(() => document.querySelectorAll('#bText .w').length > 5);
     return off && stillShown;   // muted, but the text is still there to read
   })());
+
+  /* ---- 6. walls between the camera and the player are cut away ---- */
+  await page.click('#btnGo');
+  await page.waitForFunction(() => window.RelWorld.state.state === 'playing', { timeout: 9000 });
+  const cutaway = await page.evaluate(async () => {
+    const { state: s, TILE } = window.RelWorld;
+    const W = 20, H = 20;
+    const plain = t => t === TILE.FLOOR || t === TILE.COIN;
+    const clear = t => t === TILE.WALL || t === TILE.FLOOR || t === TILE.COIN;
+    const g = s.floor.goal;
+    // A wall directly in front of a standable tile, far from the exit beacon and
+    // with nothing in front of it that could paint over the probe pixel.
+    let spot = null;
+    for (let y = 4; y < H - 2 && !spot; y++) {
+      for (let x = 4; x < W - 2 && !spot; x++) {
+        if (s.map[y][x] !== TILE.WALL) continue;
+        if (Math.abs(x - g.x) + Math.abs(y - g.y) < 6) continue;
+        if (!clear(s.map[y][x + 1]) || !clear(s.map[y + 1][x]) || !clear(s.map[y + 1][x + 1])) continue;
+        const behind = [x - 1, y - 1], away = [x - 3, y - 3];
+        if (away[0] < 1 || away[1] < 1) continue;
+        if (!plain(s.map[behind[1]][behind[0]]) || !plain(s.map[away[1]][away[0]])) continue;
+        spot = { wall: [x, y], behind, away };
+      }
+    }
+    if (!spot) return { ok: false, reason: 'no suitable wall found' };
+
+    const ctx2 = document.getElementById('gameCanvas').getContext('2d');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const TW = 60, TH = 46, ZH = 34, VW = 1000, VH = 600;
+    const sample = async (px, py) => {
+      s.player.x = px; s.player.y = py;
+      await new Promise(r => setTimeout(r, 700));        // let the camera settle
+      const wx = VW / 2 + (spot.wall[0] - spot.wall[1]) * TW / 2 - s.camX;
+      const wy = VH / 2 + (spot.wall[0] + spot.wall[1]) * TH / 2 - s.camY - ZH + TH * 0.35;
+      const sx = VW / 2 + s.scale * (wx - VW / 2);
+      const sy = VH / 2 + s.scale * (wy - VH / 2);
+      if (sx < 4 || sx > VW - 4 || sy < 4 || sy > VH - 4) return null;
+      const d = ctx2.getImageData(Math.round(sx * dpr), Math.round(sy * dpr), 1, 1).data;
+      return d[0] + d[1] + d[2];
+    };
+    const solid = await sample(spot.away[0], spot.away[1]);
+    const ghost = await sample(spot.behind[0], spot.behind[1]);
+    return { ok: solid !== null && ghost !== null, solid, ghost, spot };
+  });
+  check('walls in front of the player are made see-through',
+    cutaway.ok && cutaway.ghost < cutaway.solid * 0.8,
+    `solid=${cutaway.solid} ghosted=${cutaway.ghost}`);
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

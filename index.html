@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#030305">
+<meta name="description" content="REL WORLD - משחק סאטירה איזומטרי על הדרך למנכ&quot;לות. 100 קומות, צ'אפחות, GPU וקצת יותר מדי ישיבות.">
+<title>REL WORLD - A CEO QUEST FOR GLORY</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕴️</text></svg>">
+<link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+
+<header id="topBar">
+  <div class="brand">
+    <h1>REL WORLD</h1>
+    <div class="subtitle">A CEO QUEST FOR GLORY</div>
+  </div>
+  <div id="ui" aria-live="off">
+    <span class="ui-item">🏢 <span id="levelDisplay">1</span></span>
+    <span class="ui-item">📈 <span id="score">0</span></span>
+    <span class="ui-item">🔑 <span id="keys">0</span></span>
+    <span class="ui-item">🗝️ <span id="masterKey">❌</span></span>
+    <span class="ui-item gpu">🟩 <span id="gpus">0</span></span>
+    <span class="ui-item strikes">⚠️ <span id="strikes">0/3</span></span>
+    <span class="ui-item combo" id="comboBox" hidden>🔥 x<span id="combo">1</span></span>
+  </div>
+  <div class="toolbar">
+    <button type="button" id="btnSound" class="icon-btn" title="צלילים" aria-pressed="true">🔊</button>
+    <button type="button" id="btnMusic" class="icon-btn" title="מוזיקה" aria-pressed="true">🎵</button>
+    <button type="button" id="btnPause" class="icon-btn" title="השהיה (P)">⏸️</button>
+  </div>
+</header>
+
+<div id="gameContainer">
+  <canvas id="gameCanvas" width="1000" height="600" role="img"
+          aria-label="מסך המשחק: קומת משרדים איזומטרית"></canvas>
+
+  <!-- ===== מסך פתיחה ===== -->
+  <div id="startScreen" class="overlayScreen">
+    <h1>REL WORLD</h1>
+    <div class="missionText">משחק חתרני על הדרך למנכ"לות</div>
+
+    <div class="menu-cols">
+      <div id="leaderboardBox" class="panel">
+        <h3>🏆 טבלת המייסדים</h3>
+        <ul id="leaderboardList"></ul>
+        <div class="best-line">שיא אישי: <b id="bestScore">0</b></div>
+      </div>
+      <div class="panel help-panel">
+        <h3>❔ איך משחקים</h3>
+        <ul class="help-list">
+          <li><b>חיצים / WASD</b> – תנועה (אפשר להחזיק)</li>
+          <li><b>רווח</b> – צ'אפחה / חלוקת GPU</li>
+          <li><b>P</b> – השהיה, <b>M</b> – מוזיקה</li>
+          <li>בנייד: ד-פד, או <b>החלקה</b> על המסך ונגיעה לפעולה</li>
+          <li>אסוף 🟩 GPU, שדרג עמדות, חלק צ'אפחות והגע ליעד הקומה</li>
+          <li>🔑 פותח דלת כתומה, 🗝️ מאסטר פותח (וגם נועל) דלתות אדומות</li>
+          <li>המנהל המקביל 👺 נותן אזהרה – שלוש אזהרות ואתה מפוטר</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="select-label">בחר קומה (מתוך מה שפתחת):</div>
+    <div id="levelSelectCont"></div>
+
+    <div class="btn-row">
+      <button type="button" class="main-btn" id="btnNewCareer">התחל קריירה חדשה</button>
+      <button type="button" class="main-btn ghost" id="btnContinue">המשך מקומה <span id="contLvl">1</span></button>
+    </div>
+  </div>
+
+  <!-- ===== תדריך ===== -->
+  <div id="briefingScreen" class="overlayScreen" hidden>
+    <h1 id="bTitle">קומה 1</h1>
+    <div class="missionText" id="bSubtitle">משבר ה-Velocity</div>
+    <p id="bText"></p>
+    <div id="bObjectives" class="objectives"></div>
+    <div class="btn-row">
+      <button type="button" class="main-btn" id="btnGo">לרדת לשטח</button>
+      <button type="button" class="main-btn ghost" id="btnBriefMenu">לתפריט</button>
+    </div>
+  </div>
+
+  <!-- ===== סיום קומה ===== -->
+  <div id="clearScreen" class="overlayScreen" hidden>
+    <h1>✅ קומה הושלמה</h1>
+    <div class="missionText" id="clearTitle"></div>
+    <div id="clearStats" class="objectives"></div>
+    <button type="button" class="main-btn" id="btnNext">לקומה הבאה</button>
+  </div>
+
+  <!-- ===== השהיה ===== -->
+  <div id="pauseScreen" class="overlayScreen" hidden>
+    <h1>⏸️ הפסקת קפה</h1>
+    <p>המשחק מושהה. הזמן לא מתקדם.</p>
+    <div class="btn-row">
+      <button type="button" class="main-btn" id="btnResume">חזרה לעבודה</button>
+      <button type="button" class="main-btn ghost" id="btnRestart">התחל קומה מחדש</button>
+      <button type="button" class="main-btn ghost" id="btnPauseMenu">לתפריט</button>
+    </div>
+  </div>
+
+  <!-- ===== פיטורים / ניצחון ===== -->
+  <div id="overScreen" class="overlayScreen" hidden>
+    <h1 id="overTitle">📉 פוטרת</h1>
+    <div class="missionText" id="overReason"></div>
+    <div id="overStats" class="objectives"></div>
+    <form id="nameForm" class="name-form">
+      <label for="nameInput">הכנס שם לטבלת המייסדים:</label>
+      <div class="name-row">
+        <input id="nameInput" type="text" maxlength="12" autocomplete="off" placeholder="המנכ&quot;ל הבא">
+        <button type="submit" class="main-btn small">שמור</button>
+      </div>
+    </form>
+    <div class="btn-row">
+      <button type="button" class="main-btn" id="btnRetry">נסה את הקומה שוב</button>
+      <button type="button" class="main-btn ghost" id="btnOverMenu">לתפריט</button>
+    </div>
+  </div>
+
+  <!-- ===== HUD ===== -->
+  <div id="missionHUD" hidden>
+    <h3>משימות:</h3>
+    <div id="taskList" aria-live="polite"></div>
+    <div id="timeDisplay" class="timer">⏳ 0:00</div>
+  </div>
+</div>
+
+<div id="bottomPanelContainer" hidden>
+  <div class="bp-title">משימות הקומה:</div>
+  <div id="taskListBottom"></div>
+  <div id="timeDisplayBottom" class="timer">⏳ 0:00</div>
+</div>
+
+<div id="touchControls">
+  <div class="dpad">
+    <div></div>
+    <button type="button" class="touch-btn" data-dir="up" aria-label="למעלה">⬆️</button>
+    <div></div>
+    <button type="button" class="touch-btn" data-dir="left" aria-label="שמאלה">⬅️</button>
+    <button type="button" class="touch-btn" data-dir="down" aria-label="למטה">⬇️</button>
+    <button type="button" class="touch-btn" data-dir="right" aria-label="ימינה">➡️</button>
+  </div>
+  <div class="action-pad">
+    <button type="button" class="action-btn" id="btnAction">
+      <span>⚡ פעולה</span>
+      <span class="hint">כאפה / GPU</span>
+    </button>
+  </div>
+</div>
+
+<noscript><p style="color:#f55">המשחק דורש JavaScript פעיל.</p></noscript>
+<script src="src/game.js"></script>
+</body>
+</html>

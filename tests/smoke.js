@@ -56,7 +56,8 @@ function serve() {
     const { buildFloor, reachableFrom, TILE, isDesk, FLOORS } = window.RelWorld;
     const problems = [];
     const goalSpots = new Set();
-    let minTime = Infinity, maxTime = 0;
+    const mazeSigs = new Set();
+    let minTime = Infinity, maxTime = 0, withScreens = 0;
     for (let i = 0; i < FLOORS; i++) {
       const f = buildFloor(i), m = f.map;
       const startTile = m[f.start.y][f.start.x];
@@ -93,11 +94,20 @@ function serve() {
         if (m[sp.y][sp.x] === TILE.WALL || isDesk(m[sp.y][sp.x])) problems.push(`L${i + 1}: rival spawn blocked`);
       }
       minTime = Math.min(minTime, f.time); maxTime = Math.max(maxTime, f.time);
+      mazeSigs.add(m.map(row => row.map(c => (c === TILE.WALL ? 1 : 0)).join('')).join(''));
+      if (f.screens && f.screens.length) withScreens++;
+      const sc = (window.RelWorld.LEVELS[i] || {}).scene;
+      if (sc === 'cinema' && (!f.screens || !f.screens.length)) problems.push(`L${i + 1}: cinema floor has no screen`);
     }
     const deterministic = JSON.stringify(buildFloor(42).map) === JSON.stringify(buildFloor(42).map);
-    return { problems: [...new Set(problems)], minTime, maxTime, deterministic, goalSpots: goalSpots.size };
+    return { problems: [...new Set(problems)], minTime, maxTime, deterministic,
+             goalSpots: goalSpots.size, distinctMazes: mazeSigs.size, withScreens };
   });
   check('all 100 floors are completable', audit.problems.length === 0, audit.problems.slice(0, 5).join('; '));
+  check('each floor has a distinct maze (no repeating layout)', audit.distinctMazes >= 98,
+    `${audit.distinctMazes}/100 distinct wall layouts`);
+  check('themed set pieces (screens) appear across floors', audit.withScreens >= 40,
+    `${audit.withScreens} floors have a screen/set piece`);
   check('floor generation is deterministic', audit.deterministic);
   check('time budget varies per floor', audit.maxTime - audit.minTime > 30, `${audit.minTime}-${audit.maxTime}s`);
   check('the exit is not always in the same place', audit.goalSpots > 8, `${audit.goalSpots} distinct exits`);
@@ -376,21 +386,20 @@ function serve() {
   const cutaway = await page.evaluate(async () => {
     const { state: s, TILE } = window.RelWorld;
     const W = 20, H = 20;
-    const plain = t => t === TILE.FLOOR || t === TILE.COIN;
-    const clear = t => t === TILE.WALL || t === TILE.FLOOR || t === TILE.COIN;
+    const plain = (x, y) => { const t = s.map[y] && s.map[y][x]; return t === TILE.FLOOR || t === TILE.ROOM || t === TILE.COIN; };
     const g = s.floor.goal;
-    // A wall directly in front of a standable tile, far from the exit beacon and
-    // with nothing in front of it that could paint over the probe pixel.
+    // A wall with a standable tile diagonally in front of it (where it occludes)
+    // and another two steps further back (where it doesn't), away from the exit.
     let spot = null;
-    for (let y = 4; y < H - 2 && !spot; y++) {
-      for (let x = 4; x < W - 2 && !spot; x++) {
+    const screenAt = s.floor.screenAt || {};
+    for (let y = 3; y < H - 1 && !spot; y++) {
+      for (let x = 3; x < W - 1 && !spot; x++) {
         if (s.map[y][x] !== TILE.WALL) continue;
-        if (Math.abs(x - g.x) + Math.abs(y - g.y) < 6) continue;
-        if (!clear(s.map[y][x + 1]) || !clear(s.map[y + 1][x]) || !clear(s.map[y + 1][x + 1])) continue;
+        if (screenAt[y * W + x]) continue;      // screen walls are dark; dimming them reveals brighter floor
+        if (Math.abs(x - g.x) + Math.abs(y - g.y) < 4) continue;
         const behind = [x - 1, y - 1], away = [x - 3, y - 3];
         if (away[0] < 1 || away[1] < 1) continue;
-        if (!plain(s.map[behind[1]][behind[0]]) || !plain(s.map[away[1]][away[0]])) continue;
-        spot = { wall: [x, y], behind, away };
+        if (plain(behind[0], behind[1]) && plain(away[0], away[1])) spot = { wall: [x, y], behind, away };
       }
     }
     if (!spot) return { ok: false, reason: 'no suitable wall found' };

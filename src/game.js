@@ -262,65 +262,221 @@
     return { speak, stop };
   })();
 
-  /* ======================= floor layout ======================= */
-  const LAYOUT = [
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [0, 9, 9, 9, 9, 0, 2, 2, 2, 2, 2, 0, 9, 9, 9, 9, 9, 9, 2, 0],
-    [0, 9, 3, 3, 9, 0, 2, 0, 0, 0, 2, 0, 9, 3, 3, 3, 3, 9, 9, 0],
-    [0, 9, 3, 3, 9, 18, 2, 17, 2, 0, 2, 18, 9, 9, 9, 9, 9, 9, 9, 0],
-    [0, 9, 9, 9, 9, 0, 0, 0, 2, 0, 0, 0, 9, 9, 9, 3, 3, 3, 9, 0],
-    [0, 0, 0, 8, 0, 0, 2, 2, 2, 2, 2, 0, 9, 9, 9, 3, 3, 3, 9, 0],
-    [0, 1, 1, 7, 1, 0, 2, 2, 2, 2, 2, 0, 9, 9, 9, 9, 9, 9, 9, 0],
-    [0, 1, 3, 3, 1, 0, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0, 8, 0, 0, 0],
-    [0, 1, 3, 3, 1, 0, 0, 0, 2, 0, 0, 0, 2, 2, 7, 2, 2, 2, 2, 0],
-    [0, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-    [0, 0, 0, 0, 0, 0, 0, 1, 2, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0],
-    [0, 9, 9, 9, 9, 9, 0, 1, 2, 1, 0, 9, 9, 9, 9, 9, 0, 1, 1, 0],
-    [0, 9, 3, 3, 3, 9, 18, 1, 2, 1, 18, 9, 3, 3, 3, 9, 0, 1, 1, 0],
-    [0, 9, 3, 3, 3, 9, 0, 1, 2, 1, 0, 9, 3, 3, 3, 9, 0, 1, 1, 0],
-    [0, 9, 9, 9, 9, 9, 0, 1, 7, 1, 0, 9, 9, 9, 9, 9, 0, 1, 1, 0],
-    [0, 0, 0, 0, 0, 0, 0, 1, 2, 1, 0, 0, 0, 8, 0, 0, 0, 1, 1, 0],
-    [0, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-    [0, 1, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-    [0, 2, 1, 7, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  ];
+  /* ======================= floor layout =======================
+     Floors are generated procedurally and seeded by floor index, so no two
+     repeat — the old build copied a single hand-drawn LAYOUT every time. Each
+     mission's `scene` tunes the maze style, the wall palette and the set piece
+     (a cinema with a dark screen, a courtroom, a server wall, a trading
+     ticker, a boardroom). */
+  const SCENES = {
+    cinema: { pal: { t: '#2a1f3d', l: '#342650', r: '#1d1530' }, room: '#241a33', corr: '#15101f',
+              rooms: [2, 3], rw: [8, 11], rh: [6, 8], loop: 0.3, gap: 1, piece: 'film' },
+    court:  { pal: { t: '#453022', l: '#54392a', r: '#301f16' }, room: '#2d1f16', corr: '#190f0a',
+              rooms: [2, 3], rw: [8, 10], rh: [6, 8], loop: 0.25, gap: 1, piece: 'court' },
+    lab:    { pal: { t: '#15383a', l: '#1d4f4f', r: '#0e2b2b' }, room: '#122827', corr: '#0c1817',
+              rooms: [3, 5], rw: [4, 6], rh: [4, 6], loop: 0.55, gap: 0, piece: 'code' },
+    bank:   { pal: { t: '#2d2712', l: '#3d3418', r: '#201b0d' }, room: '#231d0e', corr: '#15110a',
+              rooms: [3, 4], rw: [5, 7], rh: [4, 6], loop: 0.4, gap: 1, piece: 'ticker' },
+    board:  { pal: { t: '#182942', l: '#203656', r: '#101d30' }, room: '#152135', corr: '#0d1420',
+              rooms: [2, 3], rw: [9, 12], rh: [6, 9], loop: 0.2, gap: 2, piece: 'boardroom' },
+    office: { pal: { t: '#2c3e50', l: '#34495e', r: '#243444' }, room: '#262d20', corr: '#161b22',
+              rooms: [4, 6], rw: [4, 6], rh: [3, 5], loop: 0.5, gap: 0, piece: null }
+  };
+  const SCENE_FALLBACK = SCENES.office;
+  const sceneFor = name => SCENES[name] || SCENE_FALLBACK;
 
-  // The original start tile (17,17) is a WALL and the rival spawned inside a desk.
-  // Spawns are now validated against the generated map instead of hard-coded.
-  const START = { x: 17, y: 18 };
+  const rectsClear = (a, b, g) =>
+    a.x + a.w + g <= b.x || b.x + b.w + g <= a.x || a.y + a.h + g <= b.y || b.y + b.h + g <= a.y;
 
-  function applyVariant(map, v, rnd) {
-    switch (v) {
-      case 1: // open plan in the middle, a fresh wall down south
-        map[10][7] = TILE.FLOOR; map[10][8] = TILE.FLOOR;
-        map[11][7] = TILE.FLOOR; map[11][8] = TILE.FLOOR;
-        map[7][13] = TILE.DESK; map[8][13] = TILE.DESK; map[7][14] = TILE.FLOOR;
-        break;
-      case 2: // southern corridor blocked, detour required
-        map[17][8] = TILE.WALL; map[17][9] = TILE.WALL;
-        map[10][13] = TILE.WALL; map[10][14] = TILE.WALL;
-        map[8][7] = TILE.DESK; map[8][8] = TILE.DESK;
-        break;
-      case 3: // extra doors and partitions
-        map[9][6] = TILE.DOOR; map[9][5] = TILE.WALL; map[9][4] = TILE.WALL;
-        map[11][13] = TILE.FLOOR; map[11][14] = TILE.FLOOR; map[12][13] = TILE.WALL;
-        break;
-      case 4: // hot-desking: scattered desks in the corridors
-        [[9, 10], [9, 12], [16, 5], [16, 11], [18, 9]].forEach(p => { map[p[0]][p[1]] = TILE.DESK; });
-        map[5][8] = TILE.WALL;
-        break;
-      case 5: // the "collaboration zone" - rooms punched open
-        map[5][3] = TILE.FLOOR; map[11][16] = TILE.FLOOR;
-        map[4][5] = TILE.DOOR; map[13][6] = TILE.DOOR;
-        map[2][13] = TILE.DESK_SAD; map[12][12] = TILE.DESK_SAD;
-        break;
+  /** Carve an L-shaped corridor between two points, turning walls into floor. */
+  function carveCorridor(map, x0, y0, x1, y1, horizFirst) {
+    let x = x0, y = y0;
+    const put = () => { if (map[y][x] === TILE.WALL) map[y][x] = TILE.FLOOR; };
+    const stepTo = (to, axis) => {
+      while ((axis === 'x' ? x : y) !== to) {
+        if (axis === 'x') x += x < to ? 1 : -1; else y += y < to ? 1 : -1;
+        put();
+      }
+    };
+    put();
+    if (horizFirst) { stepTo(x1, 'x'); stepTo(y1, 'y'); }
+    else { stepTo(y1, 'y'); stepTo(x1, 'x'); }
+  }
+
+  /**
+   * Procedural floor: rooms + connecting corridors + a seeded scatter of desks,
+   * coins, doors and a key. Returns the raw map plus the room mask, the start
+   * cell, and the decorative set pieces (screens / wall text). buildFloor()
+   * then places the goal, repairs reachability and tops up GPUs/keys.
+   */
+  function generateLayout(index, sceneName, rnd) {
+    const S = sceneFor(sceneName);
+    const W = MAP_W, H = MAP_H;
+    const map = Array.from({ length: H }, () => new Array(W).fill(TILE.WALL));
+    const roomMask = Array.from({ length: H }, () => new Array(W).fill(false));
+    const screens = [], wallTexts = [];
+    const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
+
+    // 1) place non-overlapping rooms
+    const rooms = [];
+    const target = ri(S.rooms[0], S.rooms[1]);
+    for (let t = 0; t < 80 && rooms.length < target; t++) {
+      const w = ri(S.rw[0], S.rw[1]), h = ri(S.rh[0], S.rh[1]);
+      const x = ri(2, W - 3 - w), y = ri(2, H - 3 - h);
+      if (x < 2 || y < 2) continue;
+      const rect = { x, y, w, h };
+      if (rooms.some(o => !rectsClear(rect, o, 1))) continue;
+      rooms.push(rect);
     }
-    // a couple of seeded desk shuffles so repeat themes never feel identical
-    for (let n = 0; n < 3; n++) {
-      const x = 1 + Math.floor(rnd() * (MAP_W - 2));
-      const y = 1 + Math.floor(rnd() * (MAP_H - 2));
-      if (map[y][x] === TILE.COIN && !(x === START.x && y === START.y)) map[y][x] = TILE.DESK;
+    if (rooms.length < 2) { // degenerate: guarantee a couple of rooms
+      rooms.length = 0;
+      rooms.push({ x: 3, y: 3, w: 6, h: 5 }, { x: 11, y: 11, w: 6, h: 5 });
+    }
+    for (const r of rooms) {
+      for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+        map[y][x] = TILE.ROOM; roomMask[y][x] = true;
+      }
+      r.cx = Math.floor(r.x + r.w / 2); r.cy = Math.floor(r.y + r.h / 2);
+    }
+
+    // 2) connect every room (chain) plus a few extra loops
+    const order = rooms.slice().sort((a, b) => (a.cx + a.cy) - (b.cx + b.cy));
+    for (let i = 1; i < order.length; i++) {
+      carveCorridor(map, order[i - 1].cx, order[i - 1].cy, order[i].cx, order[i].cy, rnd() < 0.5);
+    }
+    const extra = Math.round(S.loop * order.length);
+    for (let i = 0; i < extra; i++) {
+      const a = order[ri(0, order.length - 1)], b = order[ri(0, order.length - 1)];
+      if (a !== b) carveCorridor(map, a.cx, a.cy, b.cx, b.cy, rnd() < 0.5);
+    }
+    // a few seeded shortcut carves from random points, so two floors that happen
+    // to pick similar rooms still end up with visibly different corridors
+    const shortcuts = 2 + ri(0, 3);
+    for (let i = 0; i < shortcuts; i++) {
+      const r = order[ri(0, order.length - 1)];
+      carveCorridor(map, ri(1, W - 2), ri(1, H - 2), r.cx, r.cy, rnd() < 0.5);
+    }
+
+    // 3) start pocket: the room nearest the bottom
+    const startRoom = rooms.reduce((lo, r) => (r.cy > lo.cy ? r : lo), rooms[0]);
+    const start = { x: startRoom.cx, y: startRoom.cy };
+
+    // 4) connectivity guarantee: carve any stranded open cell back to start
+    for (let pass = 0; pass < 4; pass++) {
+      const seen = reachableFrom(map, start.x, start.y);
+      let fixed = false;
+      for (let y = 1; y < H - 1 && !fixed; y++) {
+        for (let x = 1; x < W - 1 && !fixed; x++) {
+          const t = map[y][x];
+          if ((t === TILE.ROOM || t === TILE.FLOOR) && !seen[y][x]) {
+            carveCorridor(map, x, y, start.x, start.y, rnd() < 0.5);
+            fixed = true;
+          }
+        }
+      }
+      if (!fixed) break;
+    }
+
+    // 5) desks inside rooms (grid, entrances kept clear), capped
+    let deskCount = 0;
+    for (const r of rooms) {
+      for (let y = r.y; y < r.y + r.h; y++) {
+        for (let x = r.x; x < r.x + r.w; x++) {
+          if (deskCount >= 34) break;
+          if (map[y][x] !== TILE.ROOM) continue;
+          if ((x - r.x) % (S.gap + 2) !== 1 || (y - r.y) % (S.gap + 2) !== 1) continue;
+          if (x === start.x && y === start.y) continue;
+          if (DIRS.some(([dx, dy]) => map[y + dy] && map[y + dy][x + dx] === TILE.FLOOR)) continue;
+          map[y][x] = TILE.DESK; deskCount++;
+        }
+      }
+    }
+
+    // 6) scatter coins along corridors
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        if (map[y][x] !== TILE.FLOOR) continue;
+        if (x === start.x && y === start.y) continue;
+        if (rnd() < 0.5) map[y][x] = TILE.COIN;
+      }
+    }
+
+    // 7) doors on a few corridor chokepoints, and one master key + door
+    const isOpen = (x, y) => { const t = map[y] && map[y][x]; return t === TILE.FLOOR || t === TILE.COIN || t === TILE.ROOM; };
+    const chokes = [];
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        if (map[y][x] !== TILE.FLOOR && map[y][x] !== TILE.COIN) continue;
+        const h = isOpen(x - 1, y) && isOpen(x + 1, y) && !isOpen(x, y - 1) && !isOpen(x, y + 1);
+        const v = isOpen(x, y - 1) && isOpen(x, y + 1) && !isOpen(x - 1, y) && !isOpen(x + 1, y);
+        if ((h || v) && Math.abs(x - start.x) + Math.abs(y - start.y) > 3) chokes.push({ x, y });
+      }
+    }
+    for (let i = chokes.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [chokes[i], chokes[j]] = [chokes[j], chokes[i]]; }
+    const doorN = Math.min(chokes.length, ri(1, 3));
+    for (let i = 0; i < doorN; i++) map[chokes[i].y][chokes[i].x] = TILE.DOOR;
+    if (chokes.length > doorN && rnd() < 0.6) {
+      const m = chokes[doorN];
+      map[m.y][m.x] = TILE.MDOOR;
+      // master key on an open corridor (never behind a locked door)
+      const open = [];
+      for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) if (map[y][x] === TILE.COIN) open.push({ x, y });
+      if (open.length) { const k = open[Math.floor(rnd() * open.length)]; map[k.y][k.x] = TILE.MKEY; }
+    }
+
+    // 8) scene set piece
+    applySetPiece(sceneName, S, map, roomMask, rooms, start, screens, wallTexts, index);
+
+    return { map, roomMask, start, screens, wallTexts };
+  }
+
+  /** The themed decoration for a floor: a dark dynamic screen and seating, a
+      server/ticker wall, a boardroom, plus a bit of writing on a wall. */
+  function applySetPiece(sceneName, S, map, roomMask, rooms, start, screens, wallTexts, index) {
+    const biggest = rooms.reduce((a, b) => (b.w * b.h > a.w * a.h ? b : a), rooms[0]);
+    const caption = STORY[index] ? STORY[index].title.replace(/^קומה \d+ · /, '') : '';
+
+    const edgeScreen = (r, kind, cap) => {
+      // flag the wall row directly above a room as a screen the seats face
+      const y = r.y - 1;
+      if (y < 1) return;
+      const x0 = r.x + 1, x1 = r.x + r.w - 2;
+      const mid = Math.floor((x0 + x1) / 2);
+      for (let x = x0; x <= x1; x++) {
+        if (map[y][x] !== TILE.WALL) continue;
+        screens.push({ x, y, kind, caption: x === mid ? cap : '' });
+      }
+    };
+
+    if (S.piece === 'film' || S.piece === 'court') {
+      // split the big room with a central dark screen; seats face it from both sides
+      const r = biggest;
+      const mx = r.cx;
+      for (let y = r.y + 1; y <= r.y + r.h - 2; y++) {
+        if (start.x === mx && start.y === y) continue;
+        map[y][mx] = TILE.WALL;
+        const mid = Math.floor(r.y + r.h / 2);
+        screens.push({ x: mx, y, kind: S.piece === 'court' ? 'court' : 'film', caption: y === mid ? caption : '' });
+      }
+      // clear top & bottom aisles so both halves stay connected around the screen
+      for (let x = r.x; x < r.x + r.w; x++) {
+        if (map[r.y][x] === TILE.DESK) map[r.y][x] = TILE.ROOM;
+        if (map[r.y + r.h - 1][x] === TILE.DESK) map[r.y + r.h - 1][x] = TILE.ROOM;
+      }
+    } else if (S.piece === 'code' || S.piece === 'ticker') {
+      edgeScreen(biggest, S.piece, S.piece === 'ticker' ? '$$$' : 'root@rel');
+    } else if (S.piece === 'boardroom') {
+      edgeScreen(biggest, 'film', caption);
+    }
+
+    // a bit of writing on a wall near the start, so even plain floors feel themed
+    const tag = STORY[index] ? goalTag(index) : '';
+    for (const [dx, dy] of DIRS) {
+      const wx = start.x + dx * 2, wy = start.y + dy * 2;
+      if (map[wy] && map[wy][wx] === TILE.WALL && !screens.some(s => s.x === wx && s.y === wy)) {
+        wallTexts.push({ x: wx, y: wy, text: tag });
+        break;
+      }
     }
   }
 
@@ -378,24 +534,12 @@
    */
   function buildFloor(index) {
     const rnd = mulberry32(1337 + index * 7919);
-    const map = LAYOUT.map(row => row.slice());
     const story = STORY[index];
-
-    applyVariant(map, index % 6, rnd);
-
-    // start tile must be walkable (this is the old spawn-inside-a-wall bug)
-    let start = { x: START.x, y: START.y };
-    if (map[start.y][start.x] === TILE.WALL || isDesk(map[start.y][start.x])) {
-      outer: for (let r = 1; r < MAP_W; r++) {
-        for (let y = 1; y < MAP_H - 1; y++) {
-          for (let x = 1; x < MAP_W - 1; x++) {
-            if (Math.abs(x - START.x) + Math.abs(y - START.y) !== r) continue;
-            const t = map[y][x];
-            if (t !== TILE.WALL && !isDesk(t) && !isDoor(t)) { start = { x, y }; break outer; }
-          }
-        }
-      }
-    }
+    const sceneName = (LEVELS[index] && LEVELS[index].scene) || 'office';
+    const scene = sceneFor(sceneName);
+    const gen = generateLayout(index, sceneName, rnd);
+    const map = gen.map;
+    const start = gen.start;
 
     let seen = reachableFrom(map, start.x, start.y);
 
@@ -414,18 +558,17 @@
       }
     }
     goalPicks.sort((a, b) => b.d - a.d);
-    // choose among the farthest third, so the exit is always a real journey
-    const pool = goalPicks.slice(0, Math.max(1, Math.ceil(goalPicks.length / 3)));
-    const goal = pool.length ? pool[Math.floor(rnd() * pool.length)] : { x: 18, y: 1 };
+    // Prefer an exit a real walk away; fall back to the farthest tile that
+    // exists on a compact floor. goalPicks only holds reachable tiles, so the
+    // goal is always reachable (the old default could land on a wall).
+    const far = goalPicks.filter(g => g.d >= 12);
+    const poolArr = far.length ? far : goalPicks;
+    const pool = poolArr.slice(0, Math.max(1, Math.ceil(poolArr.length / 3)));
+    const goal = pool.length ? pool[Math.floor(rnd() * pool.length)] : { x: start.x, y: start.y };
     map[goal.y][goal.x] = GOAL_TILE[story.type];
 
-    // room mask drives the camera zoom and the "put the floor back" tile colour
-    const roomMask = Array.from({ length: MAP_H }, () => new Array(MAP_W).fill(false));
-    for (let y = 0; y < MAP_H; y++) {
-      for (let x = 0; x < MAP_W; x++) {
-        if (LAYOUT[y][x] === TILE.ROOM) roomMask[y][x] = true;
-      }
-    }
+    // room mask (from the generator) drives the camera zoom and floor colour
+    const roomMask = gen.roomMask;
     for (let y = 0; y < MAP_H; y++) {
       for (let x = 0; x < MAP_W; x++) {
         if (isDesk(map[y][x]) && DIRS.some(([dx, dy]) => roomMask[y + dy] && roomMask[y + dy][x + dx])) {
@@ -463,7 +606,7 @@
     // the goal itself must be reachable, otherwise the floor is a dead end
     seen = reachableFrom(map, start.x, start.y);
     if (!seen[goal.y][goal.x]) {
-      map[7][16] = TILE.DOOR; // re-open the right wing
+      carveCorridor(map, goal.x, goal.y, start.x, start.y, rnd() < 0.5);
       seen = reachableFrom(map, start.x, start.y);
     }
 
@@ -511,7 +654,26 @@
     spawns.sort((a, b) => b.d - a.d);
     if (!spawns.length) spawns.push({ x: start.x, y: start.y, d: 0 });
 
-    // type 1 asks for a budget quota rather than every last coin on the floor
+    // Finalize: the goal must be reachable, and a budget floor needs enough
+    // coins to actually ask a quota of. Procedural floors sometimes run thin on
+    // either after the GPU conversion, so top them up here.
+    seen = reachableFrom(map, start.x, start.y);
+    if (!seen[goal.y][goal.x]) { carveCorridor(map, goal.x, goal.y, start.x, start.y, rnd() < 0.5); seen = reachableFrom(map, start.x, start.y); }
+    if (story.type === 1) {
+      coins = 0;
+      const reachFloor = [];
+      for (let y = 1; y < MAP_H - 1; y++) {
+        for (let x = 1; x < MAP_W - 1; x++) {
+          if (map[y][x] === TILE.COIN) coins++;
+          else if (seen[y][x] && (map[y][x] === TILE.FLOOR || map[y][x] === TILE.ROOM) &&
+                   !(x === start.x && y === start.y) && !(x === goal.x && y === goal.y)) reachFloor.push({ x, y });
+        }
+      }
+      for (let i = reachFloor.length - 1; coins < 12 && i >= 0; i--) {
+        const c = reachFloor.splice(Math.floor(rnd() * (i + 1)), 1)[0];
+        map[c.y][c.x] = TILE.COIN; coins++;
+      }
+    }
     const coinQuota = story.type === 1 ? Math.max(1, Math.ceil(coins * 0.6)) : 0;
     // Budget: pay for the actual workload of this floor, then tighten the screws
     // as the tower gets higher. Every floor stays finishable, none is a stroll.
@@ -520,8 +682,18 @@
                : 110 + desks * 3;
     const time = clamp(base - Math.floor(index / 6) * 4, 110, 240);
 
+    // drop any screen/wall-text flags whose wall got carved away, and index them
+    const screens = gen.screens.filter(s => map[s.y] && map[s.y][s.x] === TILE.WALL);
+    const wallTexts = gen.wallTexts.filter(s => map[s.y] && map[s.y][s.x] === TILE.WALL);
+    const screenAt = {};
+    for (const s of screens) screenAt[s.y * MAP_W + s.x] = s;
+    const textAt = {};
+    for (const s of wallTexts) textAt[s.y * MAP_W + s.x] = s;
+
     return { map, roomMask, start, spawns, goal, desks, coins, coinQuota, time,
-             type: story.type, tag: goalTag(index) };
+             type: story.type, tag: goalTag(index),
+             scene: sceneName, palette: scene.pal, roomColor: scene.room, corrColor: scene.corr,
+             screens, screenAt, wallTexts, textAt };
   }
 
   /* ======================= DOM ======================= */
@@ -1224,6 +1396,71 @@
     if (!isDoorBlock) { ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.stroke(); }
   }
 
+  // One vertical slice (f0..f1) of an iso wall face, between its two vertical
+  // edges — the building block for the animated screen walls below.
+  function faceStrip(ta, ba, tb, bb, f0, f1, color) {
+    const L = (p, q, f) => [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f];
+    const p0 = L(ta, ba, f0), p1 = L(tb, bb, f0), p2 = L(tb, bb, f1), p3 = L(ta, ba, f1);
+    ctx.beginPath();
+    ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.lineTo(p2[0], p2[1]); ctx.lineTo(p3[0], p3[1]);
+    ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+  }
+
+  const SCREEN_BASE = { film: [90, 180, 255], court: [200, 150, 90], code: [30, 255, 130], ticker: [120, 255, 170] };
+
+  /** A wall rendered as a dark, dynamic screen: a cinema/court screen sweeps a
+      bright band; a server/ticker wall scrolls glowing rows. */
+  function drawScreenWall(x, y, screen, detailed) {
+    const z = ZH;
+    drawWallBlock(x, y, z, '#0b0b12', '#050509', '#0c0c14', false);  // dark bezel
+    // vertical edges of each visible face: [topLeft, botLeft, topRight, botRight]
+    const faceL = [[x - TW / 2, y + TH / 2 - z], [x - TW / 2, y + TH / 2], [x, y + TH - z], [x, y + TH]];
+    const faceR = [[x, y + TH - z], [x, y + TH], [x + TW / 2, y + TH / 2 - z], [x + TW / 2, y + TH / 2]];
+    const c = SCREEN_BASE[screen.kind] || SCREEN_BASE.film;
+    const rgba = (a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+    // faint base glow across both faces
+    faceStrip(faceL[0], faceL[1], faceL[2], faceL[3], 0, 1, rgba(0.14));
+    faceStrip(faceR[0], faceR[1], faceR[2], faceR[3], 0, 1, rgba(0.07));
+    if (detailed) {
+      const t = S.globalTime;
+      if (screen.kind === 'film' || screen.kind === 'court') {
+        // a bright band sweeping down, plus a couple of faint scanlines
+        const s = (t * 0.012) % 1;
+        faceStrip(faceL[0], faceL[1], faceL[2], faceL[3], s, Math.min(1, s + 0.12), rgba(0.5));
+        faceStrip(faceR[0], faceR[1], faceR[2], faceR[3], s, Math.min(1, s + 0.12), rgba(0.28));
+        for (let k = 0; k < 5; k++) {
+          const f = (k / 5 + (t * 0.004) % 0.2);
+          faceStrip(faceL[0], faceL[1], faceL[2], faceL[3], f, f + 0.015, rgba(0.18));
+        }
+      } else {
+        // scrolling rows of glowing "text"
+        for (let k = 0; k < 7; k++) {
+          const f = ((k / 7) + (t * 0.02)) % 1;
+          const bright = 0.2 + 0.3 * ((k * 7 + Math.floor(t * 0.4)) % 3 === 0 ? 1 : 0.4);
+          faceStrip(faceL[0], faceL[1], faceL[2], faceL[3], f, f + 0.05, rgba(bright));
+          faceStrip(faceR[0], faceR[1], faceR[2], faceR[3], f, f + 0.05, rgba(bright * 0.5));
+        }
+      }
+    }
+    if (detailed && screen.caption) {
+      ctx.save();
+      ctx.font = 'bold 9px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#000'; ctx.fillText(screen.caption.slice(0, 11), x + 1, y - z / 2 + 1);
+      ctx.fillStyle = rgba(1); ctx.fillText(screen.caption.slice(0, 11), x, y - z / 2);
+      ctx.restore();
+    }
+  }
+
+  /** A short bit of writing on a wall face (the themed sign near the start). */
+  function drawWallSign(x, y, text) {
+    if (!text) return;
+    ctx.save();
+    ctx.font = 'bold 8px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillText(text.slice(0, 8), x + 1 - TW / 4, y + TH / 4 - ZH / 2 + 1);
+    ctx.fillStyle = 'rgba(255,210,110,0.9)'; ctx.fillText(text.slice(0, 8), x - TW / 4, y + TH / 4 - ZH / 2);
+    ctx.restore();
+  }
+
   function shiftColor(hex, delta) {
     const n = parseInt(hex.slice(1), 16);
     const r = clamp(((n >> 16) & 255) + delta, 0, 255);
@@ -1477,12 +1714,13 @@
     if (S.map && innerAlpha > 0.02) {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      const palettes = [
-        { t: '#2c3e50', l: '#34495e', r: '#2c3e50' }, { t: '#27ae60', l: '#2ecc71', r: '#27ae60' },
-        { t: '#c0392b', l: '#e74c3c', r: '#c0392b' }, { t: '#8e44ad', l: '#9b59b6', r: '#8e44ad' }
-      ];
-      const base = palettes[S.level % palettes.length];
+      // palette, floor tints and set-piece lookups come from the themed floor
+      const base = (S.floor && S.floor.palette) || { t: '#2c3e50', l: '#34495e', r: '#243444' };
       const pal = { t: shiftColor(base.t, 14), l: base.l, r: shiftColor(base.r, -26) };
+      const roomCol = (S.floor && S.floor.roomColor) || '#262d20';
+      const corrCol = (S.floor && S.floor.corrColor) || '#161b22';
+      const screenAt = (S.floor && S.floor.screenAt) || {};
+      const textAt = (S.floor && S.floor.textAt) || {};
       const bop = Math.sin(S.globalTime * 0.15) * 2;
 
       for (let y = 0; y < MAP_H; y++) {
@@ -1497,15 +1735,19 @@
             const room = S.roomMask[y][x];
             // a little per-tile noise so large floors do not read as flat colour
             const n = ((x * 7 + y * 13) % 5) - 2;
-            drawIsoTile(pX, pY, room ? shiftColor('#3a2518', n * 5) : shiftColor('#14161c', n * 4), room);
+            drawIsoTile(pX, pY, room ? shiftColor(roomCol, n * 5) : shiftColor(corrCol, n * 4), room);
           }
           if (val === TILE.WALL) {
+            const screen = screenAt[y * MAP_W + x];
+            const sign = textAt[y * MAP_W + x];
             // Cut away walls standing between the camera and the player: in this
             // projection anything further along x+y is drawn on top of them.
             const ox = x - S.player.x, oy = y - S.player.y;
             const occluding = detailed && ox >= 0 && oy >= 0 && ox + oy > 0 && ox + oy <= 3;
             if (occluding) ctx.globalAlpha = innerAlpha * 0.34;
-            drawWallBlock(pX, pY, ZH, pal.t, pal.l, pal.r, false);
+            if (screen) drawScreenWall(pX, pY, screen, detailed);
+            else { drawWallBlock(pX, pY, ZH, pal.t, pal.l, pal.r, false);
+                   if (sign && detailed) drawWallSign(pX, pY, sign.text); }
             ctx.globalAlpha = innerAlpha;
           } else if (val === TILE.DOOR) {
             drawWallBlock(pX, pY, ZH, 'rgba(255,100,0,0.5)', 'rgba(255,80,0,0.7)', 'rgba(200,50,0,0.8)', true);

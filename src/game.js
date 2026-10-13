@@ -1113,7 +1113,7 @@
   function renderNarration(text) {
     const host = $('bText');
     // vowel points need more room than bare letters or they turn to mush
-    host.classList.toggle('pointed', NIQQUD.test(text));
+    host.classList.toggle('pointed', isPointed(text));
     host.textContent = '';
     S.brief.words = [];
     S.brief.textLen = Math.max(1, text.length);
@@ -1147,19 +1147,28 @@
     }
   }
 
-  // Hebrew vowel points. A mission written with niqqud has to keep it to the
-  // end of the sentence, so the tail below comes in both spellings.
-  const NIQQUD = /[ְ-ׇּׁׂ]/;
+  // Hebrew vowel points.
+  //
+  // The niqqud in this game is a pronunciation hint for the speech engine, not
+  // grammar — it is deliberately "wrong" where correct pointing is misread:
+  // plene spelling throughout, cholam rather than kamatz for an "o" (כּוֹל, not
+  // כָּל), no silent alef the engine would voice, a silent shva left unmarked
+  // and a vocal one written as segol/patach. A pointed mission has to stay
+  // pointed to the end of the sentence, so the tail comes in both spellings.
+  // A single mark is only a disambiguation (העֵר = "wake", not העיר), so it takes a
+  // real density of them before a mission counts as vocalised.
+  const NIQQUD_G = /[\u05B0-\u05BC\u05C1\u05C2\u05C7]/g;
+  const isPointed = t => (String(t).match(NIQQUD_G) || []).length >= 8;
 
   /** What actually gets read out: the mission, then where to end up. */
   function missionScript(i) {
-    const pointed = NIQQUD.test(STORY[i].text);
+    const pointed = isPointed(STORY[i].text);
     // the blinking-arrow explanation is a tutorial line: say it on the first
     // couple of floors and then stop repeating it every single briefing
     const hint = i >= 2 ? ''
-      : pointed ? ' הַחֵץ הַמְּהַבְהֵב מַצְבִּיעַ לְשָׁם לְאֹרֶךְ כָּל הַקּוֹמָה.'
+      : pointed ? ' הַחֵץ הַמֶהַבהֵב מַצבִּיעַ לֶשָׁם לֶאוֹרֶך כּוֹל הַקוֹמָה.'
                 : ' החץ המהבהב מצביע לשם לאורך כל הקומה.';
-    const lead = pointed ? ' הַיַּעַד שֶׁלְּךָ: ' : ' היעד שלך: ';
+    const lead = pointed ? ' הַיַעַד שֶׁלךָ: ' : ' היעד שלך: ';
     return `${STORY[i].text}${lead}${goalTag(i)}.${hint}`;
   }
 

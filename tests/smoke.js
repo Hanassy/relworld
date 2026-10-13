@@ -131,6 +131,32 @@ function serve() {
              stuckFloors, repairedFloors };
   });
   check('all 100 floors are completable', audit.problems.length === 0, audit.problems.slice(0, 5).join('; '));
+  // The niqqud is a pronunciation hint for the speech engine, not grammar, so
+  // it follows a fixed phonetic convention. Guard it mechanically, because the
+  // same rules have to hold once every mission is pointed.
+  const pointing = await page.evaluate(() => {
+    const L = window.RelWorld.LEVELS;
+    const script = window.RelWorld.missionScript;
+    // one stray mark is a disambiguation, not a vocalised mission
+    const marks = t => (String(t).match(/[\u05B0-\u05BC\u05C1\u05C2\u05C7]/g) || []).length;
+    const bad = [];
+    let pointedCount = 0;
+    for (let i = 0; i < L.length; i++) {
+      const texts = [L[i].text, L[i].sub, script(i)];
+      if (marks(L[i].text) < 8) continue;
+      pointedCount++;
+      for (const t of texts) {
+        if (t.indexOf('\u05B0') >= 0) bad.push(`L${i + 1}: shva (silent ones are dropped, vocal ones become segol/patach)`);
+        if (t.indexOf('\u05DB\u05B8\u05DC') >= 0) bad.push(`L${i + 1}: כָּל with kamatz — must be כּוֹל`);
+        if (t.indexOf("\u05E6'\u05D0") >= 0) bad.push(`L${i + 1}: alef inside the slap word — the engine voices it`);
+      }
+    }
+    return { pointedCount, bad: [...new Set(bad)] };
+  });
+  check('pointed missions follow the phonetic niqqud convention',
+    pointing.bad.length === 0,
+    `${pointing.pointedCount} pointed${pointing.bad.length ? ': ' + pointing.bad.slice(0, 3).join('; ') : ''}`);
+
   // Negative control: a validator that cannot fail proves nothing, so hand it a
   // floor where the only key sits behind the door it opens.
   const control = await page.evaluate(() => {

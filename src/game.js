@@ -580,6 +580,146 @@
   }
 
   /**
+   * Lock-aware reachability: the key/door dependency graph.
+   *
+   * reachableFrom() walks straight through doors on the assumption that a key
+   * exists somewhere, so it can never catch the one failure that actually
+   * matters — a key sealed behind the very door it opens. Here a door is an
+   * edge you may only cross by spending a key you have ALREADY picked up, so
+   * the search state is "which doors are open". We explore that state graph
+   * (a floor has a handful of doors, so 2^n is tiny) and return the largest
+   * region genuinely attainable, together with the doors that stayed shut.
+   */
+  function reachableWithKeys(map, sx, sy) {
+    const doors = [];
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        const t = map[y][x];
+        if (t === TILE.DOOR) doors.push({ x, y, master: false });
+        else if (t === TILE.MDOOR) doors.push({ x, y, master: true });
+      }
+    }
+    const n = Math.min(doors.length, 12);          // guard the 2^n state walk
+    const doorIdx = {};
+    for (let i = 0; i < n; i++) doorIdx[doors[i].y * MAP_W + doors[i].x] = i;
+
+    const flood = (mask) => {
+      const seen = Array.from({ length: MAP_H }, () => new Array(MAP_W).fill(false));
+      const q = [[sx, sy]];
+      seen[sy][sx] = true;
+      let keys = 0, mkey = false, head = 0;
+      while (head < q.length) {
+        const [x, y] = q[head++];
+        const t = map[y][x];
+        if (t === TILE.KEY) keys++;
+        else if (t === TILE.MKEY) mkey = true;
+        for (const [dx, dy] of DIRS) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H || seen[ny][nx]) continue;
+          const nt = map[ny][nx];
+          if (nt === TILE.WALL || isDesk(nt)) continue;
+          if (isDoor(nt)) {
+            const i = doorIdx[ny * MAP_W + nx];
+            if (i === undefined || !(mask & (1 << i))) continue;   // still locked
+          }
+          seen[ny][nx] = true;
+          q.push([nx, ny]);
+        }
+      }
+      return { seen, keys, mkey, size: q.length };
+    };
+
+    const spentOn = (mask) => {
+      let c = 0;
+      for (let i = 0; i < n; i++) if ((mask & (1 << i)) && !doors[i].master) c++;
+      return c;
+    };
+    const touches = (seen, d) =>
+      DIRS.some(([dx, dy]) => seen[d.y + dy] && seen[d.y + dy][d.x + dx]);
+
+    let best = flood(0), bestMask = 0;
+    const visited = new Set([0]);
+    const stack = [0];
+    while (stack.length) {
+      const mask = stack.pop();
+      const st = flood(mask);
+      if (st.size > best.size) { best = st; bestMask = mask; }
+      for (let i = 0; i < n; i++) {
+        if (mask & (1 << i)) continue;
+        const d = doors[i];
+        if (!touches(st.seen, d)) continue;                 // cannot even walk up to it
+        if (d.master ? !st.mkey : st.keys <= spentOn(mask)) continue;  // cannot pay for it
+        const next = mask | (1 << i);
+        if (!visited.has(next)) { visited.add(next); stack.push(next); }
+      }
+    }
+    const stuck = doors.filter((d, i) => i < n && !(bestMask & (1 << i)) && touches(best.seen, d));
+    return { seen: best.seen, keys: best.keys, mkey: best.mkey, size: best.size, doors, stuck };
+  }
+
+  /**
+   * Make the floor honestly solvable under those rules. Anything the player
+   * provably cannot get to is pulled back inside the attainable region, and if
+   * a door is reachable but unaffordable we hand them one more key. Each repair
+   * can open up new ground, so it re-audits until the picture stops changing.
+   */
+  function repairLocks(map, roomMask, start, goal, rnd) {
+    let lock = reachableWithKeys(map, start.x, start.y);
+    let fixes = 0;
+    for (let pass = 0; pass < 10; pass++) {
+      const inR = (x, y) => lock.seen[y][x];
+      const stranded = [], spots = [];
+      for (let y = 1; y < MAP_H - 1; y++) {
+        for (let x = 1; x < MAP_W - 1; x++) {
+          const t = map[y][x];
+          if (inR(x, y)) {
+            if ((t === TILE.FLOOR || t === TILE.ROOM) &&
+                !(x === start.x && y === start.y) && !(x === goal.x && y === goal.y)) spots.push({ x, y });
+          } else if (t === TILE.KEY || t === TILE.MKEY || t === TILE.GPU || t === TILE.COIN) {
+            stranded.push({ x, y, t });
+          }
+        }
+      }
+      // 1) a pickup the player can never reach is worse than useless: move it in
+      if (stranded.length && spots.length) {
+        for (const item of stranded) {
+          if (!spots.length) break;
+          const spot = spots.splice(Math.floor(rnd() * spots.length), 1)[0];
+          map[item.y][item.x] = roomMask[item.y][item.x] ? TILE.ROOM : TILE.FLOOR;
+          map[spot.y][spot.x] = item.t;
+        }
+        fixes++;
+        lock = reachableWithKeys(map, start.x, start.y);
+        continue;
+      }
+      // 2) a door the player can walk up to but cannot pay for is the bug the
+      //    whole audit exists for — give them the key rather than a dead end
+      if (lock.stuck.length) {
+        const needMaster = lock.stuck.every(d => d.master) && !lock.mkey;
+        if (spots.length) {
+          const spot = spots.splice(Math.floor(rnd() * spots.length), 1)[0];
+          map[spot.y][spot.x] = needMaster ? TILE.MKEY : TILE.KEY;
+        } else {
+          map[lock.stuck[0].y][lock.stuck[0].x] = TILE.FLOOR;   // nowhere to put one: unlock it
+        }
+        fixes++;
+        lock = reachableWithKeys(map, start.x, start.y);
+        continue;
+      }
+      // 3) the goal is behind no door at all, just walls
+      if (!inR(goal.x, goal.y)) {
+        carveCorridor(map, goal.x, goal.y, start.x, start.y, rnd() < 0.5);
+        fixes++;
+        lock = reachableWithKeys(map, start.x, start.y);
+        continue;
+      }
+      break;
+    }
+    lock.fixes = fixes;
+    return lock;
+  }
+
+  /**
    * Builds floor `index`. Deterministic, and guaranteed completable:
    * unreachable pickups are relocated, unreachable desks are removed from the
    * quota, and enough GPUs / keys are always placed.
@@ -655,40 +795,80 @@
       }
     }
 
-    // the goal itself must be reachable, otherwise the floor is a dead end
-    seen = reachableFrom(map, start.x, start.y);
-    if (!seen[goal.y][goal.x]) {
-      carveCorridor(map, goal.x, goal.y, start.x, start.y, rnd() < 0.5);
-      seen = reachableFrom(map, start.x, start.y);
-    }
+    // ---- lock-aware validation (see reachableWithKeys / repairLocks) ----
+    // From here on, everything is measured against what the player can ACTUALLY
+    // reach when a door only opens for a key already in hand. The old pass used
+    // reachableFrom(), which walks through doors for free and so could happily
+    // leave a key sealed behind the door it opens.
+    let lock = repairLocks(map, roomMask, start, goal, rnd);
+    let lockFixes = lock.fixes;
+    const inReach = (x, y) => lock.seen[y][x];
+    const nearReach = (x, y) => DIRS.some(([dx, dy]) => lock.seen[y + dy] && lock.seen[y + dy][x + dx]);
 
-    // tally the floor, then top up GPUs and keys so the quotas are always met
-    let desks = 0, coins = 0, keysOnFloor = 0, doors = 0;
-    for (let y = 0; y < MAP_H; y++) {
-      for (let x = 0; x < MAP_W; x++) {
-        const t = map[y][x];
-        if (isDesk(t)) desks++;
-        else if (t === TILE.COIN) coins++;
-        else if (t === TILE.KEY) keysOnFloor++;
-        else if (t === TILE.DOOR) doors++;
+    // a desk nobody can stand next to drops out of the quota
+    for (let y = 1; y < MAP_H - 1; y++) {
+      for (let x = 1; x < MAP_W - 1; x++) {
+        if (isDesk(map[y][x]) && !nearReach(x, y)) map[y][x] = roomMask[y][x] ? TILE.ROOM : TILE.FLOOR;
       }
     }
 
+    const freeInReach = () => {
+      const out = [];
+      for (let y = 1; y < MAP_H - 1; y++) {
+        for (let x = 1; x < MAP_W - 1; x++) {
+          const t = map[y][x];
+          if (!inReach(x, y) || (t !== TILE.FLOOR && t !== TILE.ROOM)) continue;
+          if ((x === start.x && y === start.y) || (x === goal.x && y === goal.y)) continue;
+          out.push({ x, y });
+        }
+      }
+      return out;
+    };
+    let freeSpots = freeInReach();
+    const take = () => (freeSpots.length ? freeSpots.splice(Math.floor(rnd() * freeSpots.length), 1)[0] : null);
+
+    let desks = 0, coins = 0, keysSeen = 0, doorCount = 0;
     const coinTiles = [];
-    for (let y = 1; y < MAP_H - 1; y++) {
-      for (let x = 1; x < MAP_W - 1; x++) if (map[y][x] === TILE.COIN && seen[y][x]) coinTiles.push({ x, y });
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        const t = map[y][x];
+        if (isDesk(t)) { desks++; continue; }
+        if (isDoor(t)) { doorCount++; continue; }
+        if (!inReach(x, y)) continue;
+        if (t === TILE.COIN) { coins++; coinTiles.push({ x, y }); }
+        else if (t === TILE.KEY) keysSeen++;
+      }
     }
 
-    const gpusNeeded = desks + 3;
-    for (let i = 0; i < gpusNeeded; i++) {
-      const spot = coinTiles.length ? coinTiles.splice(Math.floor(rnd() * coinTiles.length), 1)[0] : takeFree();
+    // one key per door, dropped where the player can already walk
+    for (let i = keysSeen; i < doorCount; i++) {
+      const spot = take();
+      if (spot) map[spot.y][spot.x] = TILE.KEY;
+    }
+
+    // GPUs, always inside the attainable region
+    for (let i = 0; i < desks + 3; i++) {
+      const spot = coinTiles.length ? coinTiles.splice(Math.floor(rnd() * coinTiles.length), 1)[0] : take();
       if (!spot) break;
       if (map[spot.y][spot.x] === TILE.COIN) coins--;
       map[spot.y][spot.x] = TILE.GPU;
     }
-    for (let i = keysOnFloor; i < doors; i++) {
-      const spot = takeFree();
-      if (spot) map[spot.y][spot.x] = TILE.KEY;
+
+    // those extra keys may have opened more ground: re-audit and refresh
+    lock = repairLocks(map, roomMask, start, goal, rnd);
+    lockFixes += lock.fixes;
+    freeSpots = freeInReach();
+
+    if (story.type === 1) {
+      coins = 0;
+      for (let y = 1; y < MAP_H - 1; y++) {
+        for (let x = 1; x < MAP_W - 1; x++) if (inReach(x, y) && map[y][x] === TILE.COIN) coins++;
+      }
+      while (coins < 12) {
+        const spot = take();
+        if (!spot) break;
+        map[spot.y][spot.x] = TILE.COIN; coins++;
+      }
     }
 
     // rival spawns: reachable floor tiles as far from the player as possible
@@ -706,26 +886,6 @@
     spawns.sort((a, b) => b.d - a.d);
     if (!spawns.length) spawns.push({ x: start.x, y: start.y, d: 0 });
 
-    // Finalize: the goal must be reachable, and a budget floor needs enough
-    // coins to actually ask a quota of. Procedural floors sometimes run thin on
-    // either after the GPU conversion, so top them up here.
-    seen = reachableFrom(map, start.x, start.y);
-    if (!seen[goal.y][goal.x]) { carveCorridor(map, goal.x, goal.y, start.x, start.y, rnd() < 0.5); seen = reachableFrom(map, start.x, start.y); }
-    if (story.type === 1) {
-      coins = 0;
-      const reachFloor = [];
-      for (let y = 1; y < MAP_H - 1; y++) {
-        for (let x = 1; x < MAP_W - 1; x++) {
-          if (map[y][x] === TILE.COIN) coins++;
-          else if (seen[y][x] && (map[y][x] === TILE.FLOOR || map[y][x] === TILE.ROOM) &&
-                   !(x === start.x && y === start.y) && !(x === goal.x && y === goal.y)) reachFloor.push({ x, y });
-        }
-      }
-      for (let i = reachFloor.length - 1; coins < 12 && i >= 0; i--) {
-        const c = reachFloor.splice(Math.floor(rnd() * (i + 1)), 1)[0];
-        map[c.y][c.x] = TILE.COIN; coins++;
-      }
-    }
     const coinQuota = story.type === 1 ? Math.max(1, Math.ceil(coins * 0.6)) : 0;
     // Budget: pay for the actual workload of this floor, then tighten the screws
     // as the tower gets higher. Every floor stays finishable, none is a stroll.
@@ -742,7 +902,7 @@
     const textAt = {};
     for (const s of wallTexts) textAt[s.y * MAP_W + s.x] = s;
 
-    return { map, roomMask, start, spawns, goal, desks, coins, coinQuota, time,
+    return { map, roomMask, start, spawns, goal, desks, coins, coinQuota, time, lockFixes,
              type: story.type, tag: goalTag(index),
              scene: sceneName, palette: scene.pal, roomColor: scene.room, corrColor: scene.corr,
              screens, screenAt, wallTexts, textAt };
@@ -2273,7 +2433,7 @@
   // Test seam: lets the headless smoke test validate all 100 floors without
   // having to duplicate the generator.
   window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS,
-                      state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES,
+                      state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES, reachableWithKeys,
                       view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,
                       SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel };
 

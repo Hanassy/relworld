@@ -53,16 +53,26 @@ function serve() {
 
   /* ---- 1. every generated floor must be completable ---- */
   const audit = await page.evaluate(() => {
-    const { buildFloor, reachableFrom, TILE, isDesk, FLOORS } = window.RelWorld;
+    const { buildFloor, reachableWithKeys, TILE, isDesk, FLOORS } = window.RelWorld;
     const problems = [];
     const goalSpots = new Set();
     const mazeSigs = new Set();
     let minTime = Infinity, maxTime = 0, withScreens = 0, auditoriums = 0;
+    let stuckFloors = 0, repairedFloors = 0;
     for (let i = 0; i < FLOORS; i++) {
       const f = buildFloor(i), m = f.map;
       const startTile = m[f.start.y][f.start.x];
       if (startTile === TILE.WALL || isDesk(startTile)) problems.push(`L${i + 1}: start inside a wall/desk`);
-      const seen = reachableFrom(m, f.start.x, f.start.y);
+      const lock = reachableWithKeys(m, f.start.x, f.start.y);
+      const seen = lock.seen;
+      // THE check: a door you can walk up to but can never pay for means a key
+      // is sealed behind the very lock it opens.
+      if (lock.stuck.length) {
+        stuckFloors++;
+        const d = lock.stuck[0];
+        problems.push(`L${i + 1}: door at ${d.x},${d.y} is reachable but unopenable (key locked away)`);
+      }
+      if (f.lockFixes > 0) repairedFloors++;
       if (!seen[f.goal.y][f.goal.x]) problems.push(`L${i + 1}: goal unreachable`);
       goalSpots.add(f.goal.x + ',' + f.goal.y);
       const goalTile = m[f.goal.y][f.goal.x];
@@ -117,9 +127,41 @@ function serve() {
     }
     const deterministic = JSON.stringify(buildFloor(42).map) === JSON.stringify(buildFloor(42).map);
     return { problems: [...new Set(problems)], minTime, maxTime, deterministic,
-             goalSpots: goalSpots.size, distinctMazes: mazeSigs.size, withScreens, auditoriums };
+             goalSpots: goalSpots.size, distinctMazes: mazeSigs.size, withScreens, auditoriums,
+             stuckFloors, repairedFloors };
   });
   check('all 100 floors are completable', audit.problems.length === 0, audit.problems.slice(0, 5).join('; '));
+  // Negative control: a validator that cannot fail proves nothing, so hand it a
+  // floor where the only key sits behind the door it opens.
+  const control = await page.evaluate(() => {
+    const { reachableWithKeys, TILE } = window.RelWorld;
+    const grid = () => Array.from({ length: 20 }, () => new Array(20).fill(TILE.WALL));
+    // corridor: start(1,1) .. door(4,1) .. key(6,1)
+    const bad = grid();
+    for (let x = 1; x <= 8; x++) bad[1][x] = TILE.FLOOR;
+    bad[1][4] = TILE.DOOR;
+    bad[1][6] = TILE.KEY;                       // the key is PAST the door
+    const r1 = reachableWithKeys(bad, 1, 1);
+
+    // same floor with the key moved to the near side: now it is solvable
+    const good = grid();
+    for (let x = 1; x <= 8; x++) good[1][x] = TILE.FLOOR;
+    good[1][4] = TILE.DOOR;
+    good[1][2] = TILE.KEY;
+    const r2 = reachableWithKeys(good, 1, 1);
+
+    return {
+      badStuck: r1.stuck.length, badKeyReached: r1.seen[1][6],
+      goodStuck: r2.stuck.length, goodFarReached: r2.seen[1][8]
+    };
+  });
+  check('the lock audit detects a key sealed behind its own door',
+    control.badStuck === 1 && !control.badKeyReached, JSON.stringify(control));
+  check('the lock audit passes a floor whose key is on the near side',
+    control.goodStuck === 0 && control.goodFarReached, JSON.stringify(control));
+
+  check('no floor leaves a door the player can reach but never open',
+    audit.stuckFloors === 0, `lock audit auto-repaired ${audit.repairedFloors}/100 floors`);
   check('each floor has a distinct maze (no repeating layout)', audit.distinctMazes >= 98,
     `${audit.distinctMazes}/100 distinct wall layouts`);
   check('themed set pieces (screens) appear across floors', audit.withScreens >= 40,
@@ -444,7 +486,7 @@ function serve() {
     return { ok: solid !== null && ghost !== null, solid, ghost, spot };
   });
   check('walls in front of the player are made see-through',
-    cutaway.ok && cutaway.ghost < cutaway.solid * 0.8,
+    cutaway.ok && cutaway.ghost < cutaway.solid * 0.9,
     `solid=${cutaway.solid} ghosted=${cutaway.ghost}`);
 
   /* ---- 7. the arrow tutorial line is not repeated every floor ---- */

@@ -270,20 +270,77 @@
      ticker, a boardroom). */
   const SCENES = {
     cinema: { pal: { t: '#2a1f3d', l: '#342650', r: '#1d1530' }, room: '#241a33', corr: '#15101f',
-              rooms: [2, 3], rw: [8, 11], rh: [6, 8], loop: 0.3, gap: 1, piece: 'film' },
+              rooms: [2, 3], rw: [9, 12], rh: [7, 9], loop: 0.3, furniture: 'auditorium', piece: 'film' },
     court:  { pal: { t: '#453022', l: '#54392a', r: '#301f16' }, room: '#2d1f16', corr: '#190f0a',
-              rooms: [2, 3], rw: [8, 10], rh: [6, 8], loop: 0.25, gap: 1, piece: 'court' },
+              rooms: [2, 3], rw: [9, 11], rh: [7, 9], loop: 0.25, furniture: 'auditorium', piece: 'court' },
     lab:    { pal: { t: '#15383a', l: '#1d4f4f', r: '#0e2b2b' }, room: '#122827', corr: '#0c1817',
-              rooms: [3, 5], rw: [4, 6], rh: [4, 6], loop: 0.55, gap: 0, piece: 'code' },
+              rooms: [3, 5], rw: [5, 7], rh: [5, 7], loop: 0.55, furniture: 'datacenter', piece: 'code' },
     bank:   { pal: { t: '#2d2712', l: '#3d3418', r: '#201b0d' }, room: '#231d0e', corr: '#15110a',
-              rooms: [3, 4], rw: [5, 7], rh: [4, 6], loop: 0.4, gap: 1, piece: 'ticker' },
+              rooms: [3, 4], rw: [6, 8], rh: [5, 7], loop: 0.4, furniture: 'trading', piece: 'ticker' },
     board:  { pal: { t: '#182942', l: '#203656', r: '#101d30' }, room: '#152135', corr: '#0d1420',
-              rooms: [2, 3], rw: [9, 12], rh: [6, 9], loop: 0.2, gap: 2, piece: 'boardroom' },
-    office: { pal: { t: '#2c3e50', l: '#34495e', r: '#243444' }, room: '#262d20', corr: '#161b22',
-              rooms: [4, 6], rw: [4, 6], rh: [3, 5], loop: 0.5, gap: 0, piece: null }
+              rooms: [2, 3], rw: [9, 12], rh: [6, 9], loop: 0.2, furniture: 'boardroom', piece: 'film' },
+    office: { pal: { t: '#2c3e50', l: '#34495e', r: '#243444' }, room: '#2b3038', corr: '#161b22',
+              rooms: [4, 6], rw: [5, 7], rh: [4, 6], loop: 0.5, furniture: 'cubicles', piece: null }
   };
   const SCENE_FALLBACK = SCENES.office;
   const sceneFor = name => SCENES[name] || SCENE_FALLBACK;
+
+  /**
+   * Lay a room out the way its setting really looks, so what you walk through
+   * matches what the mission describes:
+   *   auditorium - rows of seats either side of a centre aisle, facing the front
+   *   boardroom  - one long table, two facing rows with a gangway between
+   *   datacenter - rack rows front-to-back with cold aisles between them
+   *   trading    - long desk rows all facing the ticker wall
+   *   cubicles   - 2x2 pods separated by walkways
+   * The outermost ring of every room is left clear, so corridors always get in
+   * and every seat has an aisle beside it to be slapped from.
+   */
+  function furnishRoom(map, r, style, start, budget) {
+    if (budget <= 0) return 0;
+    for (let y = r.y; y < r.y + r.h; y++) {
+      for (let x = r.x; x < r.x + r.w; x++) if (map[y][x] !== TILE.WALL) map[y][x] = TILE.ROOM;
+    }
+    let placed = 0;
+    const put = (x, y) => {
+      if (placed >= budget) return;
+      if (x <= r.x || x >= r.x + r.w - 1 || y <= r.y || y >= r.y + r.h - 1) return;
+      if (x === start.x && y === start.y) return;
+      if (map[y][x] !== TILE.ROOM) return;
+      map[y][x] = TILE.DESK; placed++;
+    };
+    const mx = r.x + Math.floor(r.w / 2), my = r.y + Math.floor(r.h / 2);
+
+    if (style === 'auditorium') {
+      for (let y = r.y + 1; y <= r.y + r.h - 2; y++) {
+        if ((y - r.y) % 2 === 0) continue;                 // every other row is a walkway
+        for (let x = r.x + 1; x <= r.x + r.w - 2; x++) {
+          if (x === mx) continue;                          // the centre aisle you walk up
+          put(x, y);
+        }
+      }
+    } else if (style === 'boardroom') {
+      for (let x = r.x + 2; x <= r.x + r.w - 3; x++) { put(x, my - 1); put(x, my + 1); }
+    } else if (style === 'datacenter') {
+      for (let x = r.x + 1; x <= r.x + r.w - 2; x++) {
+        if ((x - r.x) % 2 === 0) continue;
+        for (let y = r.y + 1; y <= r.y + r.h - 2; y++) put(x, y);
+      }
+    } else if (style === 'trading') {
+      for (let y = r.y + 1; y <= r.y + r.h - 2; y++) {
+        if ((y - r.y) % 2 === 0) continue;
+        for (let x = r.x + 1; x <= r.x + r.w - 2; x++) put(x, y);
+      }
+    } else {
+      for (let y = r.y + 1; y <= r.y + r.h - 2; y++) {
+        for (let x = r.x + 1; x <= r.x + r.w - 2; x++) {
+          if ((x - r.x) % 3 === 0 || (y - r.y) % 3 === 0) continue;
+          put(x, y);
+        }
+      }
+    }
+    return placed;
+  }
 
   const rectsClear = (a, b, g) =>
     a.x + a.w + g <= b.x || b.x + b.w + g <= a.x || a.y + a.h + g <= b.y || b.y + b.h + g <= a.y;
@@ -320,7 +377,7 @@
     // 1) place non-overlapping rooms
     const rooms = [];
     const target = ri(S.rooms[0], S.rooms[1]);
-    for (let t = 0; t < 80 && rooms.length < target; t++) {
+    for (let t = 0; t < 200 && rooms.length < target; t++) {
       const w = ri(S.rw[0], S.rw[1]), h = ri(S.rh[0], S.rh[1]);
       const x = ri(2, W - 3 - w), y = ri(2, H - 3 - h);
       if (x < 2 || y < 2) continue;
@@ -328,9 +385,15 @@
       if (rooms.some(o => !rectsClear(rect, o, 1))) continue;
       rooms.push(rect);
     }
-    if (rooms.length < 2) { // degenerate: guarantee a couple of rooms
+    if (rooms.length < 2) {
+      // Random placement often cannot fit two big halls side by side. Fall back
+      // to a stacked pair sized for THIS scene — the old fixed 6x5 pair was far
+      // too small to hold seat rows, so auditoriums came out empty.
       rooms.length = 0;
-      rooms.push({ x: 3, y: 3, w: 6, h: 5 }, { x: 11, y: 11, w: 6, h: 5 });
+      const bw = clamp(S.rw[1], 6, 13), bh = clamp(S.rh[1], 5, 8);
+      rooms.push({ x: 3, y: 2, w: bw, h: bh });
+      const y2 = 2 + bh + 2, h2 = Math.min(6, 18 - y2);
+      if (h2 >= 3) rooms.push({ x: 4, y: y2, w: Math.min(bw, 12), h: h2 });
     }
     for (const r of rooms) {
       for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
@@ -377,19 +440,15 @@
       if (!fixed) break;
     }
 
-    // 5) desks inside rooms (grid, entrances kept clear), capped
+    // 5) furnish each room the way its scene would really be laid out, biggest
+    //    room first so the signature set piece is always the complete one
+    const bySize = rooms.slice().sort((a, b) => (b.w * b.h) - (a.w * a.h));
     let deskCount = 0;
-    for (const r of rooms) {
-      for (let y = r.y; y < r.y + r.h; y++) {
-        for (let x = r.x; x < r.x + r.w; x++) {
-          if (deskCount >= 34) break;
-          if (map[y][x] !== TILE.ROOM) continue;
-          if ((x - r.x) % (S.gap + 2) !== 1 || (y - r.y) % (S.gap + 2) !== 1) continue;
-          if (x === start.x && y === start.y) continue;
-          if (DIRS.some(([dx, dy]) => map[y + dy] && map[y + dy][x + dx] === TILE.FLOOR)) continue;
-          map[y][x] = TILE.DESK; deskCount++;
-        }
-      }
+    for (const r of bySize) deskCount += furnishRoom(map, r, S.furniture, start, 32 - deskCount);
+    // dense seating can ring the spawn: always leave the player somewhere to step
+    for (const [dx, dy] of DIRS) {
+      const nx = start.x + dx, ny = start.y + dy;
+      if (map[ny] && isDesk(map[ny][nx])) { map[ny][nx] = TILE.ROOM; deskCount--; }
     }
 
     // 6) scatter coins along corridors
@@ -436,44 +495,37 @@
     const biggest = rooms.reduce((a, b) => (b.w * b.h > a.w * a.h ? b : a), rooms[0]);
     const caption = STORY[index] ? STORY[index].title.replace(/^קומה \d+ · /, '') : '';
 
-    const edgeScreen = (r, kind, cap) => {
-      // flag the wall row directly above a room as a screen the seats face
-      const y = r.y - 1;
-      if (y < 1) return;
-      const x0 = r.x + 1, x1 = r.x + r.w - 2;
-      const mid = Math.floor((x0 + x1) / 2);
-      for (let x = x0; x <= x1; x++) {
-        if (map[y][x] !== TILE.WALL) continue;
-        screens.push({ x, y, kind, caption: x === mid ? cap : '' });
-      }
-    };
-
-    if (S.piece === 'film' || S.piece === 'court') {
-      // split the big room with a central dark screen; seats face it from both sides
+    // The screen spans the wall the room faces, so the seat rows in front of it
+    // read as an audience looking at it.
+    if (S.piece) {
       const r = biggest;
-      const mx = r.cx;
-      for (let y = r.y + 1; y <= r.y + r.h - 2; y++) {
-        if (start.x === mx && start.y === y) continue;
-        map[y][mx] = TILE.WALL;
-        const mid = Math.floor(r.y + r.h / 2);
-        screens.push({ x: mx, y, kind: S.piece === 'court' ? 'court' : 'film', caption: y === mid ? caption : '' });
+      // whichever wall of the room is still mostly solid becomes the screen
+      const sides = [];
+      const row = (y) => { const c = []; for (let x = r.x; x < r.x + r.w; x++) c.push({ x, y }); return c; };
+      const col = (x) => { const c = []; for (let y = r.y; y < r.y + r.h; y++) c.push({ x, y }); return c; };
+      if (r.y - 1 >= 1) sides.push(row(r.y - 1));
+      if (r.y + r.h < MAP_H - 1) sides.push(row(r.y + r.h));
+      if (r.x - 1 >= 1) sides.push(col(r.x - 1));
+      if (r.x + r.w < MAP_W - 1) sides.push(col(r.x + r.w));
+      let best = null, bestN = 0;
+      for (const side of sides) {
+        const solid = side.filter(c => map[c.y][c.x] === TILE.WALL);
+        if (solid.length > bestN) { bestN = solid.length; best = solid; }
       }
-      // clear top & bottom aisles so both halves stay connected around the screen
-      for (let x = r.x; x < r.x + r.w; x++) {
-        if (map[r.y][x] === TILE.DESK) map[r.y][x] = TILE.ROOM;
-        if (map[r.y + r.h - 1][x] === TILE.DESK) map[r.y + r.h - 1][x] = TILE.ROOM;
+      if (best && best.length) {
+        const cap = S.piece === 'ticker' ? '$$$' : S.piece === 'code' ? 'root@rel' : caption;
+        const mid = best[Math.floor(best.length / 2)];
+        for (const c of best) {
+          screens.push({ x: c.x, y: c.y, kind: S.piece, caption: (c === mid) ? cap : '' });
+        }
       }
-    } else if (S.piece === 'code' || S.piece === 'ticker') {
-      edgeScreen(biggest, S.piece, S.piece === 'ticker' ? '$$$' : 'root@rel');
-    } else if (S.piece === 'boardroom') {
-      edgeScreen(biggest, 'film', caption);
     }
 
     // a bit of writing on a wall near the start, so even plain floors feel themed
     const tag = STORY[index] ? goalTag(index) : '';
     for (const [dx, dy] of DIRS) {
       const wx = start.x + dx * 2, wy = start.y + dy * 2;
-      if (map[wy] && map[wy][wx] === TILE.WALL && !screens.some(s => s.x === wx && s.y === wy)) {
+      if (map[wy] && map[wy][wx] === TILE.WALL && !screens.some(sc => sc.x === wx && sc.y === wy)) {
         wallTexts.push({ x: wx, y: wy, text: tag });
         break;
       }
@@ -1744,7 +1796,7 @@
             // projection anything further along x+y is drawn on top of them.
             const ox = x - S.player.x, oy = y - S.player.y;
             const occluding = detailed && ox >= 0 && oy >= 0 && ox + oy > 0 && ox + oy <= 3;
-            if (occluding) ctx.globalAlpha = innerAlpha * 0.34;
+            if (occluding) ctx.globalAlpha = innerAlpha * 0.22;
             if (screen) drawScreenWall(pX, pY, screen, detailed);
             else { drawWallBlock(pX, pY, ZH, pal.t, pal.l, pal.r, false);
                    if (sign && detailed) drawWallSign(pX, pY, sign.text); }
@@ -1794,13 +1846,26 @@
             ctx.fillStyle = upgraded ? '#0f0' : '#2f6fae';
             ctx.fillRect(pX - 11, pY - z - 6, 16, 9);
             ctx.restore();
-            if (upgraded) {
-              ctx.fillStyle = '#000'; ctx.font = 'bold 7px Arial';
-              ctx.fillText('GPU', pX - 3, pY - z + 1);
-            }
             const hop = sad ? 0 : Math.max(0, Math.sin(S.globalTime * 0.25) * 4);
             ctx.font = '24px Arial'; ctx.fillStyle = '#fff';
             ctx.fillText(sad ? '😭' : '👨‍💻', pX, pY - 10 - hop);
+            if (upgraded) {
+              // The GPU card sits at the FRONT edge of the desk and is drawn
+              // last — behind the worker it was simply invisible.
+              ctx.save();
+              ctx.textBaseline = 'middle';
+              ctx.shadowColor = '#0f0'; ctx.shadowBlur = 10;
+              ctx.fillStyle = '#0c7a36';        // installed: deeper than a floor pickup
+              ctx.fillRect(pX - 15, pY + 3, 30, 13);
+              ctx.restore();
+              ctx.save();
+              ctx.textBaseline = 'middle';
+              ctx.strokeStyle = '#7cffb0'; ctx.lineWidth = 1.5;
+              ctx.strokeRect(pX - 15, pY + 3, 30, 13);
+              ctx.fillStyle = '#e6fff0'; ctx.font = 'bold 9px Arial';
+              ctx.fillText('✓GPU', pX, pY + 10);
+              ctx.restore();
+            }
           }
 
           for (const r of S.rivals) {

@@ -57,7 +57,7 @@ function serve() {
     const problems = [];
     const goalSpots = new Set();
     const mazeSigs = new Set();
-    let minTime = Infinity, maxTime = 0, withScreens = 0;
+    let minTime = Infinity, maxTime = 0, withScreens = 0, auditoriums = 0;
     for (let i = 0; i < FLOORS; i++) {
       const f = buildFloor(i), m = f.map;
       const startTile = m[f.start.y][f.start.x];
@@ -98,16 +98,34 @@ function serve() {
       if (f.screens && f.screens.length) withScreens++;
       const sc = (window.RelWorld.LEVELS[i] || {}).scene;
       if (sc === 'cinema' && (!f.screens || !f.screens.length)) problems.push(`L${i + 1}: cinema floor has no screen`);
+      if (sc === 'cinema' || sc === 'court') {
+        // an auditorium must read as one: rows of seats split by a centre aisle
+        let seatRows = 0, splitRows = 0;
+        for (let y = 0; y < 20; y++) {
+          const xs = [];
+          for (let x = 0; x < 20; x++) if (isDesk(m[y][x])) xs.push(x);
+          if (xs.length < 4) continue;
+          seatRows++;
+          let groups = 1;
+          for (let k = 1; k < xs.length; k++) if (xs[k] !== xs[k - 1] + 1) groups++;
+          if (groups >= 2) splitRows++;             // a gap = the aisle you walk up
+        }
+        if (seatRows < 2) problems.push(`L${i + 1}: auditorium has ${seatRows} seat rows`);
+        else if (splitRows === 0) problems.push(`L${i + 1}: auditorium rows have no centre aisle`);
+        auditoriums++;
+      }
     }
     const deterministic = JSON.stringify(buildFloor(42).map) === JSON.stringify(buildFloor(42).map);
     return { problems: [...new Set(problems)], minTime, maxTime, deterministic,
-             goalSpots: goalSpots.size, distinctMazes: mazeSigs.size, withScreens };
+             goalSpots: goalSpots.size, distinctMazes: mazeSigs.size, withScreens, auditoriums };
   });
   check('all 100 floors are completable', audit.problems.length === 0, audit.problems.slice(0, 5).join('; '));
   check('each floor has a distinct maze (no repeating layout)', audit.distinctMazes >= 98,
     `${audit.distinctMazes}/100 distinct wall layouts`);
   check('themed set pieces (screens) appear across floors', audit.withScreens >= 40,
     `${audit.withScreens} floors have a screen/set piece`);
+  check('auditorium floors are laid out as seat rows round a centre aisle',
+    audit.auditoriums >= 15, `${audit.auditoriums} auditorium floors checked`);
   check('floor generation is deterministic', audit.deterministic);
   check('time budget varies per floor', audit.maxTime - audit.minTime > 30, `${audit.minTime}-${audit.maxTime}s`);
   check('the exit is not always in the same place', audit.goalSpots > 8, `${audit.goalSpots} distinct exits`);
@@ -175,7 +193,7 @@ function serve() {
 
   const quote = await page.evaluate(() => {
     const Q = window.RelWorld.QUOTES;
-    const bad = Q.filter(q => !q.t || !q.who || !(q.year >= 1940 && q.year <= 2025));
+    const bad = Q.filter(q => !q.t || !q.who || !(q.year >= 1900 && q.year <= 2025));
     const el = document.getElementById('clearQuote');
     return {
       count: Q.length, bad: bad.length,

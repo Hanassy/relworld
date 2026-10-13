@@ -1112,6 +1112,8 @@
   /** Splits the mission text into word spans we can light up one at a time. */
   function renderNarration(text) {
     const host = $('bText');
+    // vowel points need more room than bare letters or they turn to mush
+    host.classList.toggle('pointed', NIQQUD.test(text));
     host.textContent = '';
     S.brief.words = [];
     S.brief.textLen = Math.max(1, text.length);
@@ -1145,12 +1147,20 @@
     }
   }
 
+  // Hebrew vowel points. A mission written with niqqud has to keep it to the
+  // end of the sentence, so the tail below comes in both spellings.
+  const NIQQUD = /[ְ-ׇּׁׂ]/;
+
   /** What actually gets read out: the mission, then where to end up. */
   function missionScript(i) {
+    const pointed = NIQQUD.test(STORY[i].text);
     // the blinking-arrow explanation is a tutorial line: say it on the first
     // couple of floors and then stop repeating it every single briefing
-    const hint = i < 2 ? ' החץ המהבהב מצביע לשם לאורך כל הקומה.' : '';
-    return `${STORY[i].text} היעד שלך: ${goalTag(i)}.${hint}`;
+    const hint = i >= 2 ? ''
+      : pointed ? ' הַחֵץ הַמְּהַבְהֵב מַצְבִּיעַ לְשָׁם לְאֹרֶךְ כָּל הַקּוֹמָה.'
+                : ' החץ המהבהב מצביע לשם לאורך כל הקומה.';
+    const lead = pointed ? ' הַיַּעַד שֶׁלְּךָ: ' : ' היעד שלך: ';
+    return `${STORY[i].text}${lead}${goalTag(i)}.${hint}`;
   }
 
   function narrateMission() {

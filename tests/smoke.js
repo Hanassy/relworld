@@ -492,14 +492,18 @@ function serve() {
   /* ---- 7. the arrow tutorial line is not repeated every floor ---- */
   const hints = await page.evaluate(() => {
     const f = window.RelWorld.missionScript;
+    // a mission may be written with niqqud, so compare on the bare letters
+    const bare = i => f(i).replace(/[\u0591-\u05C7]/g, '');
     const needle = 'החץ המהבהב';
-    return { first: f(0).includes(needle), second: f(1).includes(needle),
-             third: f(2).includes(needle), late: f(40).includes(needle),
-             lateNamesGoal: f(40).includes('היעד שלך') };
+    return { first: bare(0).includes(needle), second: bare(1).includes(needle),
+             third: bare(2).includes(needle), late: bare(40).includes(needle),
+             lateNamesGoal: bare(40).includes('היעד שלך'),
+             firstNamesGoal: bare(0).includes('היעד שלך') };
   });
   check('the blinking-arrow hint is only taught on the first floors',
     hints.first && hints.second && !hints.third && !hints.late, JSON.stringify(hints));
-  check('every floor still names its destination out loud', hints.lateNamesGoal);
+  check('every floor still names its destination out loud',
+    hints.lateNamesGoal && hints.firstNamesGoal);
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

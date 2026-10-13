@@ -66,86 +66,20 @@
     };
   }
 
-  /* ======================= story content ======================= */
-  const STORY = [
-    { title: 'קומה 1', subtitle: 'משבר ה-Velocity', type: 0, goal: 'מעלית',
-      text: 'המנכ"ל רותח. התפוקה ירדה והמשקיעים בלחץ. עליך לשדרג את המחשבים עם GPU ירוק, ולחלק צ\'אפחות האצה לכולם. בסיום, תגיע למעלית (🔼).' },
-    { title: 'קומה 2', subtitle: 'המאבק על ה-Grooming', type: 1, goal: 'GROOMING',
-      text: 'צ\'אד (👺) מתכנן לקחת קרדיט. עליך לאסוף את התקציב, להעיף צ\'אפחות לעובדים, ולהגיע לישיבה (🗓️). נעל אותו בדרך!' },
-    { title: 'קומה 3', subtitle: 'המירוץ ל-HR', type: 2, goal: 'HR',
-      text: 'התגנב לצ\'אד ופוצץ אותו בצ\'אפחה! הוא יטוס להתלונן ב-HR (👩‍⚖️). השג אותו בריצה לשם כדי להשתיק את התיק!' }
-  ];
-
-  const THEMES = [
-    { t: 'חזרה למשרד', s: 'RTO של אילון מאסק', type: 0, goal: 'מעלית',
-      d: 'אילון צייץ שכולם חוזרים או עפים! אסוף את ה-GPU, תן צ\'אפחות לאלו שחולמים על הבית, ורוץ למעלית.' },
-    { t: 'תרמית מס', s: 'איי קיימן קוראים לנו', type: 1, goal: 'ישיבה',
-      d: 'רשות המיסים פשטה על הקומה. אסוף מהר את מזומני החברה, חלק צ\'אפחות למדליפים, וברח לישיבה.' },
-    { t: 'פיטורים ב-SMS', s: 'קיצוצים באישון לילה', type: 2, goal: 'HR',
-      d: 'שלחת SMS ל-50% מהחברה. השתק את נציג העובדים (👺) בצ\'אפחה, ורוץ מהר ל-HR לפני הלינץ\'!' },
-    { t: 'Fake It Till You Make It', s: 'מצגת ל-VC', type: 1, goal: 'VC',
-      d: 'המוצר קורס אבל הקרן בדרך! לקט נתונים פיקטיביים (🪙), העף צ\'אפחות לעובדים שייראו עסוקים, והגע לחדר הישיבות.' },
-    { t: 'חזון המייסד', s: 'סטיב ג\'ובס סטייל', type: 0, goal: 'מעלית',
-      d: 'פזר כרטיסי מסך (GPU) לשדרוג הפרויקט, הרבץ למי ששואל שאלות על החזון, ורד למעלית בסטייל.' },
-    { t: 'בריחה מישיבה', s: 'Could be an email', type: 2, goal: 'HR',
-      d: 'הישיבה לא נגמרת. תן צ\'אפחה משתיקה לחופר הראשי (👺), העֵר את העובדים שנרדמו, וברח ל-HR.' },
-    { t: 'יוניקורן או קרטון', s: 'סבב גיוס במיליארד', type: 1, goal: 'דירקטוריון',
-      d: 'השווי נקבע לפי כמה מזומן נראה בקופה. אסוף כל שקל שמתגלגל, חלק צ\'אפחות מוטיבציה, והגע לישיבת הדירקטוריון.' },
-    { t: 'מהפכת ה-AI', s: 'פרומפט אחד קטן לאדם', type: 0, goal: 'מעלית',
-      d: 'הבטחת לדירקטוריון שהכל ירוץ על AI. חלק GPU לכל עמדה, העֵר את מי שעוד כותב קוד ביד, ורד למעלית.' },
-    { t: 'סטנדאפ של 90 דקות', s: 'אג\'ייל זה סטייט אוף מיינד', type: 2, goal: 'HR',
-      d: 'הסקראם מאסטר (👺) רוצה לדווח עליך. סתום לו את הפה בצ\'אפחה והגע ל-HR לפניו.' },
-    { t: 'מיזוג ורכישה', s: 'Synergy, חברים', type: 1, goal: 'אינטגרציה',
-      d: 'קנינו מתחרה בשביל שלושה עובדים. אסוף את התקציב שנשאר, עורר את הנרכשים, ורוץ לישיבת האינטגרציה.' },
-    { t: 'הצ\'ק-אין הרבעוני', s: 'OKR ל-Q5', type: 0, goal: 'מעלית',
-      d: 'היעדים לא הושגו, אז שינינו את היעדים. שדרג את כל העמדות ב-GPU, חלק צ\'אפחות יישור קו, וסע במעלית.' },
-    { t: 'פעמון בנאסד"ק', s: 'IPO או אוטובוס', type: 1, goal: 'אנליסטים',
-      d: 'יום לפני ההנפקה. אסוף כל מטבע שאפשר להציג כהכנסה, העֵר את צוות הכספים, והגע לישיבת האנליסטים.' }
-  ];
-
-  for (let i = STORY.length; i < FLOORS; i++) {
-    const th = THEMES[(i - STORY.length) % THEMES.length];
-    STORY.push({ title: `קומה ${i + 1}: ${th.t}`, subtitle: th.s, text: th.d, type: th.type });
-  }
-
-
-  /* ======================= hall of fame ======================= */
-  // Real quotes from real people in the industry, with the year they said it.
-  // The two that are almost certainly apocryphal are labelled as such rather
-  // than passed off as genuine.
-  const QUOTES = [
-    { t: 'אין שום סיכוי שהאייפון יתפוס נתח שוק משמעותי. שום סיכוי.', who: 'סטיב באלמר, מנכ"ל מיקרוסופט', year: 2007 },
-    { t: 'חמש מאות דולר?! זה הטלפון הכי יקר בעולם, ואין לו אפילו מקלדת.', who: 'סטיב באלמר, על האייפון', year: 2007 },
-    { t: 'הייתי סוגר את אפל ומחזיר את הכסף לבעלי המניות.', who: 'מייקל דל, על מה שהיה עושה במקום ג\'ובס', year: 1997 },
-    { t: 'אפל כבר מתה.', who: 'נייתן מירוולד, סמנכ"ל הטכנולוגיות של מיקרוסופט', year: 1997 },
-    { t: 'אין שום סיבה שמישהו ירצה מחשב בבית שלו.', who: 'קן אולסן, מייסד DEC', year: 1977 },
-    { t: 'בעוד שנתיים בעיית הספאם תיפתר.', who: 'ביל גייטס, בפורום הכלכלי העולמי', year: 2004 },
-    { t: 'לינוקס זה סרטן.', who: 'סטיב באלמר', year: 2001 },
-    { t: 'גוגל היא לא חברה אמיתית. היא מגדל קלפים.', who: 'סטיב באלמר', year: 2005 },
-    { t: 'האינטרנט יתפוצץ כמו סופרנובה ויקרוס קטסטרופלית בשנה הבאה.', who: 'רוברט מטקאלף, ממציא האתרנט — ב-1997 הוא אכל את המאמר, פשוטו כמשמעו', year: 1995 },
-    { t: 'ההשפעה של האינטרנט על הכלכלה לא תהיה גדולה משל מכונת הפקס.', who: 'פול קרוגמן, כלכלן, לימים חתן פרס נובל', year: 1998 },
-    { t: 'לא משנה כמה המוצר טוב או רע — העובדה היא שאנשים כבר לא קוראים.', who: 'סטיב ג\'ובס, על הקינדל', year: 2008 },
-    { t: 'פשוט אל תחזיקו אותו ככה.', who: 'סטיב ג\'ובס, על בעיית הקליטה באייפון 4', year: 2010 },
-    { t: 'עשינו את הכפתורים על המסך כל כך יפים, שתרצו ללקק אותם.', who: 'סטיב ג\'ובס, על ממשק Aqua', year: 2000 },
-    { t: 'עדיף להיות פיראט מאשר להתגייס לצי.', who: 'סטיב ג\'ובס, לצוות המקינטוש', year: 1982 },
-    { t: 'מודל המנוי למוזיקה פשט את הרגל.', who: 'סטיב ג\'ובס, שלוש שנים לפני שספוטיפיי הוקמה', year: 2003 },
-    { t: 'אמנים אמיתיים משחררים מוצר.', who: 'סטיב ג\'ובס', year: 1983 },
-    { t: 'מפתחים! מפתחים! מפתחים! מפתחים!', who: 'סטיב באלמר, על הבמה, מיוזע', year: 2000 },
-    { t: 'אנשים צעירים הם פשוט חכמים יותר.', who: 'מארק צוקרברג, בכנס ליזמים', year: 2007 },
-    { t: 'פרטיות כבר אינה נורמה חברתית.', who: 'מארק צוקרברג', year: 2010 },
-    { t: 'ממילא אין לכם שום פרטיות. תתגברו.', who: 'סקוט מקנילי, מנכ"ל Sun Microsystems', year: 1999 },
-    { t: 'המטאוורס הוא הפרק הבא של האינטרנט.', who: 'מארק צוקרברג, בהכרזה על שינוי שם החברה', year: 2021 },
-    { t: 'תזוזו מהר ותשברו דברים.', who: 'מארק צוקרברג, המוטו הרשמי של פייסבוק', year: 2009 },
-    { t: 'אף אחד מעולם לא שינה את העולם בשבוע עבודה של 40 שעות.', who: 'אילון מאסק', year: 2018 },
-    { t: 'אני בטוח שטסלה תיסע לבד מלוס אנג\'לס לניו יורק עד סוף השנה.', who: 'אילון מאסק', year: 2017 },
-    { t: 'היכולת לעבוד 996 היא ברכה עצומה.', who: 'ג\'ק מא, מייסד עליבאבא', year: 2019 },
-    { t: 'למדוד התקדמות בתכנות לפי שורות קוד זה כמו למדוד התקדמות בבניית מטוס לפי משקל.', who: 'ביל גייטס', year: 1986 },
-    { t: 'אם לא התביישתם בגרסה הראשונה של המוצר שלכם — השקתם מאוחר מדי.', who: 'ריד הופמן, ממייסדי לינקדאין', year: 2009 },
-    { t: 'תוכנה אוכלת את העולם.', who: 'מארק אנדריסן', year: 2011 },
-    { t: 'אנחנו לא מונופול. יש לנו נתח שוק. יש הבדל.', who: 'סטיב באלמר', year: 1998 },
-    { t: '640 קילובייט זיכרון יספיקו לכל אחד.', who: 'מיוחס לביל גייטס — שמכחיש בתוקף שאי פעם אמר את זה', year: 1981 },
-    { t: 'לדעתי יש שוק עולמי לאולי חמישה מחשבים.', who: 'מיוחס לתומס ווטסון מ-IBM — ככל הנראה מעולם לא נאמר', year: 1943 }
-  ];
+  /* ======================= story content =======================
+     The 100 levels live in src/levels.js (window.REL_LEVELS), which is the
+     single source of truth shared with the readable LEVELS.md. Each entry is
+     themed on a real tech event and carries the matching quote. */
+  const LEVELS = (typeof window !== 'undefined' && window.REL_LEVELS) || [];
+  const STORY = LEVELS.map((l, i) => ({
+    title: `קומה ${i + 1} · ${l.name}`,
+    subtitle: l.sub,
+    type: l.type,
+    text: l.text,
+    goal: l.goal
+  }));
+  // per-level quote, 1:1 with the floor (no recycling)
+  const QUOTES = LEVELS.map(l => l.q);
 
   const GOAL_TILE = [TILE.ELEVATOR, TILE.MEETING, TILE.HR];
   const GOAL_NAME = ['המעלית 🔼', 'חדר הישיבות 🗓️', 'משרד HR 👩‍⚖️'];
@@ -633,6 +567,9 @@
   // base ended up behind the briefing text. 36 storeys fit the clear band above
   // the narration while still reading as a skyscraper.
   const SHELL_TOP = -17, SHELL_BOT = 19;
+  // Which storey lights up for a given level. Larger result = larger z = LOWER
+  // on screen, so level 0 lights near the base and each level climbs UP.
+  const activeFloorForLevel = lvl => SHELL_BOT - 3 - (lvl % 30);
 
   /** Scale and camY that frame `height` world units of content, whose centre is
       at `centre`, into the fraction `band` of the viewport, sitting at `at`. */
@@ -1461,8 +1398,7 @@
     poly([rightC, botC, pt(20, 20, zBot), pt(20, 0, zBot)], '#0c1320');
     poly([topC, rightC, botC, leftC], '#08101a');
 
-    // the lit floor climbs the tower as the career goes up
-    const activeFloor = SHELL_TOP + 3 + (S.level % 30);
+    const activeFloor = activeFloorForLevel(S.level);
     for (let f = SHELL_TOP + 1; f < SHELL_BOT; f++) {
       const z = f * ZH;
       const active = (f === activeFloor);
@@ -2032,7 +1968,7 @@
   window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS,
                       state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES,
                       view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,
-                      SHELL_TOP, SHELL_BOT, ZH, TH };
+                      SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel };
 
   /* ======================= boot ======================= */
   syncOptionButtons();

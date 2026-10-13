@@ -179,6 +179,34 @@ function serve() {
     quote.shownText.length > 10 && /\d{4}/.test(quote.shownWho),
     quote.shownWho.trim());
 
+  // 100 distinct levels, each with its own matching quote
+  const content = await page.evaluate(() => {
+    const L = window.RelWorld.LEVELS;
+    const missions = new Set(L.map(l => l.text));
+    const quotes = new Set(L.map(l => l.q.t));
+    // the clear screen showed floor 1's quote, which must be floor 1's quote
+    const el = document.getElementById('clearQuote');
+    const shown = (el.querySelector('.q-text') || {}).textContent || '';
+    return {
+      levels: L.length, missions: missions.size, quotes: quotes.size,
+      matchesFloor1: shown.includes(L[0].q.t.slice(0, 20))
+    };
+  });
+  check('there are 100 levels with distinct missions', content.levels === 100 && content.missions === 100,
+    `${content.levels} levels, ${content.missions} distinct missions`);
+  check('each level has its own distinct quote', content.quotes === 100, `${content.quotes} distinct quotes`);
+  check('the quote shown matches the floor just cleared', content.matchesFloor1);
+
+  // the lit floor climbs UP the tower as the career advances (was reversed)
+  const lit = await page.evaluate(() => {
+    const R = window.RelWorld;
+    return { base: R.activeFloorForLevel(0), mid: R.activeFloorForLevel(15),
+             bot: R.SHELL_BOT, top: R.SHELL_TOP };
+  });
+  check('the lit storey starts at the base and climbs up with the level',
+    lit.base > lit.mid && (lit.bot - lit.base) <= 4,
+    `level0 lights storey ${lit.base} (base ${lit.bot}), level15 lights ${lit.mid}`);
+
   /* ---- 3. losing keeps the page alive (no location.reload) ---- */
   await page.click('#btnNext');
   await page.click('#btnGo');

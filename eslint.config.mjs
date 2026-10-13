@@ -3,7 +3,8 @@
 const browser = [
   'window', 'document', 'navigator', 'localStorage', 'performance', 'console',
   'requestAnimationFrame', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
-  'KeyboardEvent', 'SpeechSynthesisUtterance', 'ResizeObserver'
+  'KeyboardEvent', 'SpeechSynthesisUtterance', 'ResizeObserver',
+  'module'  // src/levels.js does a dual browser/node export
 ];
 const node = ['require', 'module', '__dirname', 'process', 'Promise'];
 const globals = list => Object.fromEntries(list.map(name => [name, 'readonly']));

@@ -8,7 +8,7 @@
   /* ======================= constants ======================= */
   const TILE = {
     WALL: 0, COIN: 1, FLOOR: 2, DESK: 3, ELEVATOR: 5, DESK_SAD: 6,
-    KEY: 7, DOOR: 8, ROOM: 9, GPU: 12, DESK_UP: 13, DESK_UP_SAD: 14,
+    KEY: 7, DOOR: 8, ROOM: 9, PART: 12, DESK_UP: 13, DESK_UP_SAD: 14,
     MEETING: 15, HR: 16, MKEY: 17, MDOOR: 18, MDOOR_OPEN: 19
   };
   const MAP_W = 20, MAP_H = 20, FLOORS = 100;
@@ -32,6 +32,13 @@
   const isDesk = t => t === TILE.DESK || t === TILE.DESK_SAD || t === TILE.DESK_UP || t === TILE.DESK_UP_SAD;
   const isDoor = t => t === TILE.DOOR || t === TILE.MDOOR;
   const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  /** Darkens (f<1) or lightens (f>1) a #rrggbb, so one era colour can carry
+      the pickup, the installed card and its outline without a second palette. */
+  function shade(hex, f) {
+    const n = parseInt(hex.slice(1), 16);
+    const ch = i => clamp(Math.round(((n >> (16 - i * 8)) & 255) * f), 0, 255);
+    return `rgb(${ch(0)},${ch(1)},${ch(2)})`;
+  }
 
   /* ======================= persistence ======================= */
   // Every access is guarded: private mode / blocked storage must not break the game.
@@ -80,6 +87,13 @@
   }));
   // per-level quote, 1:1 with the floor (no recycling)
   const QUOTES = LEVELS.map(l => l.q);
+  /* What you hand a worker is whatever was new in the year the mission is set
+     in: a 1984 floor runs on 3.5" floppies, only the AI floors see a GPU. The
+     ladder itself lives in levels.js next to the data it dates. */
+  const TECH = (typeof window !== 'undefined' && window.REL_TECH) || [];
+  const LAST_KIT = TECH[TECH.length - 1] ||
+    { id: 'gpu', name: 'כרטיס GPU', b: 'ב-GPU', short: 'GPU', icon: '🟩', hue: '#19d419' };
+  const kitFor = i => (LEVELS[i] && LEVELS[i].kit) || LAST_KIT;
 
   const GOAL_TILE = [TILE.ELEVATOR, TILE.MEETING, TILE.HR];
   const GOAL_NAME = ['המעלית 🔼', 'חדר הישיבות 🗓️', 'משרד HR 👩‍⚖️'];
@@ -175,8 +189,8 @@
       key() { tone(800, 'sine', 0.1, 0.2); tone(1200, 'sine', 0.15, 0.2, 0.1); },
       masterKey() { [600, 800, 1000].forEach((f, i) => tone(f, 'sine', 0.15, 0.3, i * 0.1)); },
       lock() { tone(300, 'square', 0.1, 0.3); tone(200, 'square', 0.1, 0.3, 0.1); },
-      gpu() { tone(1500, 'square', 0.1, 0.15); tone(2000, 'square', 0.15, 0.15, 0.1); },
-      giveGpu() { tone(600, 'triangle', 0.1, 0.25); tone(800, 'triangle', 0.2, 0.25, 0.1); },
+      part() { tone(1500, 'square', 0.1, 0.15); tone(2000, 'square', 0.15, 0.15, 0.1); },
+      givePart() { tone(600, 'triangle', 0.1, 0.25); tone(800, 'triangle', 0.2, 0.25, 0.1); },
       slap() { tone(150, 'square', 0.1, 0.5); sweep(600, 200, 0.5, 0.25); },
       deny() { tone(180, 'square', 0.12, 0.25); tone(120, 'square', 0.18, 0.25, 0.1); },
       tick() { tone(1000, 'square', 0.05, 0.1); },
@@ -396,7 +410,7 @@
    * Procedural floor: rooms + connecting corridors + a seeded scatter of desks,
    * coins, doors and a key. Returns the raw map plus the room mask, the start
    * cell, and the decorative set pieces (screens / wall text). buildFloor()
-   * then places the goal, repairs reachability and tops up GPUs/keys.
+   * then places the goal, repairs reachability and tops up parts/keys.
    */
   function generateLayout(index, sceneName, rnd) {
     const S = sceneFor(sceneName);
@@ -707,7 +721,7 @@
           if (inR(x, y)) {
             if ((t === TILE.FLOOR || t === TILE.ROOM) &&
                 !(x === start.x && y === start.y) && !(x === goal.x && y === goal.y)) spots.push({ x, y });
-          } else if (t === TILE.KEY || t === TILE.MKEY || t === TILE.GPU || t === TILE.COIN) {
+          } else if (t === TILE.KEY || t === TILE.MKEY || t === TILE.PART || t === TILE.COIN) {
             stranded.push({ x, y, t });
           }
         }
@@ -754,7 +768,7 @@
   /**
    * Builds floor `index`. Deterministic, and guaranteed completable:
    * unreachable pickups are relocated, unreachable desks are removed from the
-   * quota, and enough GPUs / keys are always placed.
+   * quota, and enough parts / keys are always placed.
    */
   function buildFloor(index) {
     const rnd = mulberry32(1337 + index * 7919);
@@ -878,12 +892,12 @@
       if (spot) map[spot.y][spot.x] = TILE.KEY;
     }
 
-    // GPUs, always inside the attainable region
+    // upgrade parts, always inside the attainable region
     for (let i = 0; i < desks + 3; i++) {
       const spot = coinTiles.length ? coinTiles.splice(Math.floor(rnd() * coinTiles.length), 1)[0] : take();
       if (!spot) break;
       if (map[spot.y][spot.x] === TILE.COIN) coins--;
-      map[spot.y][spot.x] = TILE.GPU;
+      map[spot.y][spot.x] = TILE.PART;
     }
 
     // those extra keys may have opened more ground: re-audit and refresh
@@ -935,7 +949,7 @@
     for (const s of wallTexts) textAt[s.y * MAP_W + s.x] = s;
 
     return { map, roomMask, start, spawns, goal, desks, coins, coinQuota, time, lockFixes,
-             type: story.type, tag: goalTag(index),
+             type: story.type, tag: goalTag(index), kit: kitFor(index),
              scene: sceneName, palette: scene.pal, roomColor: scene.room, corrColor: scene.corr,
              screens, screenAt, wallTexts, textAt };
   }
@@ -962,12 +976,12 @@
   const S = {
     state: 'menu',
     level: 0, score: 0, scoreAtStart: 0, runFloors: 0,
-    keys: 0, gpus: 0, masterKey: false,
+    keys: 0, parts: 0, masterKey: false,
     strikes: 0, combo: 0, comboTimer: 0,
     floor: null, map: null, roomMask: null,
     player: { x: 0, y: 0, animY: 0, invuln: 0 },
     rivals: [], chadSlapped: false,
-    slaps: 0, gpusGiven: 0, coinsGot: 0,
+    slaps: 0, partsGiven: 0, coinsGot: 0,
     timeLeft: 0,
     camX: 0, camY: 350, scale: 0.13, buildingAlpha: 1, introT: 0,
     shake: 0, globalTime: 0,
@@ -1051,7 +1065,7 @@
   /* ======================= objectives ======================= */
   function objectives() {
     const f = S.floor, list = [];
-    if (f.type === 0) list.push({ label: `שדרג עמדות ב-GPU: ${S.gpusGiven}/${f.desks}`, done: S.gpusGiven >= f.desks });
+    if (f.type === 0) list.push({ label: `שדרג עמדות ${f.kit.b}: ${S.partsGiven}/${f.desks}`, done: S.partsGiven >= f.desks });
     if (f.type === 1) list.push({ label: `אסוף תקציב: ${S.coinsGot}/${f.coinQuota}`, done: S.coinsGot >= f.coinQuota });
     list.push({ label: `חלק צ'אפחות: ${S.slaps}/${f.desks}`, done: S.slaps >= f.desks });
     // the boss slap starts the sprint, so it has to be the last thing you do
@@ -1065,7 +1079,12 @@
     $('score').textContent = S.score;
     $('levelDisplay').textContent = S.level + 1;
     $('keys').textContent = S.keys;
-    $('gpus').textContent = S.gpus;
+    $('parts').textContent = S.parts;
+    if (S.floor) {
+      // the counter wears the era's colour, so the HUD says "floppies" at a glance
+      $('partIcon').textContent = S.floor.kit.icon;
+      $('parts').parentNode.style.color = S.floor.kit.hue;
+    }
     $('masterKey').textContent = S.masterKey ? '✅' : '❌';
     $('strikes').textContent = S.strikes + '/' + MAX_STRIKES;
     const comboBox = $('comboBox');
@@ -1107,7 +1126,7 @@
     S.map = f.map;
     S.roomMask = f.roomMask;
     S.player = { x: f.start.x, y: f.start.y, animY: 0, invuln: 0 };
-    S.slaps = 0; S.gpusGiven = 0; S.coinsGot = 0; S.chadSlapped = false;
+    S.slaps = 0; S.partsGiven = 0; S.coinsGot = 0; S.chadSlapped = false;
     S.combo = 0; S.comboTimer = 0;
     S.particles = []; S.texts = []; S.slapFx = [];
     S.timeLeft = f.time;
@@ -1228,7 +1247,7 @@
   function openBriefing(level, resetRun) {
     Audio.init();
     if (resetRun) {
-      S.score = 0; S.keys = 0; S.gpus = 0; S.masterKey = false;
+      S.score = 0; S.keys = 0; S.parts = 0; S.masterKey = false;
       S.strikes = 0; S.runFloors = 0;
     }
     S.level = clamp(level, 0, FLOORS - 1);
@@ -1239,13 +1258,14 @@
     $('bTitle').textContent = story.title;
     $('bSubtitle').textContent = story.subtitle;
     $('bObjectives').innerHTML = [
-      f.type === 0 ? `🟩 שדרג ${f.desks} עמדות ב-GPU` : '',
+      f.type === 0 ? `${f.kit.icon} שדרג ${f.desks} עמדות ${f.kit.b}` : '',
       f.type === 1 ? `🪙 אסוף ${f.coinQuota} יחידות תקציב` : '',
       f.type === 2 ? '👺 ולבסוף: צ\'אפחה לבוסניק ומירוץ ל-HR' : '',
       `🖐️ ${f.desks} צ'אפחות לעובדים`,
       `🏁 יעד: ${f.tag} — ${GOAL_NAME[f.type]}`,
       `⏳ ${Math.floor(f.time / 60)}:${String(f.time % 60).padStart(2, '0')} על השעון`
     ].filter(Boolean).map(line => `<div>${line}</div>`).join('');
+    refreshStatus();          // the top bar already shows this floor's hardware
 
     S.state = 'briefing';
     S.brief.t = 0;
@@ -1408,11 +1428,11 @@
         award(200, nx, ny, 'MASTER KEY!', '#ff5555');
         addParticles(nx, ny, '#ff5555', 20);
         break;
-      case TILE.GPU:
-        S.gpus++; Audio.gpu();
+      case TILE.PART:
+        S.parts++; Audio.part();
         S.map[ny][nx] = floorTileUnder(nx, ny);
-        award(50, nx, ny, '+GPU', '#0f0');
-        addParticles(nx, ny, '#0f0', 10);
+        award(50, nx, ny, '+' + S.floor.kit.short, S.floor.kit.hue);
+        addParticles(nx, ny, S.floor.kit.hue, 10);
         break;
       case TILE.ELEVATOR: case TILE.MEETING: case TILE.HR:
         if (objectives().ready) levelCleared();
@@ -1463,12 +1483,12 @@
       if (isDesk(cell)) {
         const sad = (cell === TILE.DESK_SAD || cell === TILE.DESK_UP_SAD);
         const upgraded = (cell === TILE.DESK_UP || cell === TILE.DESK_UP_SAD);
-        if (!upgraded && S.gpus > 0) {
-          S.gpus--; S.gpusGiven++;
+        if (!upgraded && S.parts > 0) {
+          S.parts--; S.partsGiven++;
           S.map[cy][cx] = sad ? TILE.DESK_UP_SAD : TILE.DESK_UP;
-          Audio.giveGpu();
-          award(200, cx, cy, 'UPGRADED!', '#0f0');
-          addParticles(cx, cy, '#0f0', 15);
+          Audio.givePart();
+          award(200, cx, cy, 'UPGRADED!', S.floor.kit.hue);
+          addParticles(cx, cy, S.floor.kit.hue, 15);
           updateHUD();
           return;
         }
@@ -1944,7 +1964,7 @@
         else if (t === TILE.DESK) c = '#ffcc00';
         else if (t === TILE.DESK_UP) c = '#8f8';
         else if (t === TILE.DESK_SAD || t === TILE.DESK_UP_SAD) c = '#4a4a4a';
-        else if (t === TILE.GPU) c = '#00ff00';
+        else if (t === TILE.PART) c = S.floor.kit.hue;
         else if (t === TILE.COIN) c = '#6b6440';
         else if (t === TILE.KEY) c = '#ffaa00';
         else if (t === TILE.MKEY) c = '#ff4444';
@@ -2042,13 +2062,23 @@
           else if (val === TILE.MKEY) ctx.fillText('🗝', pX, pY + bop);
           else if (val === TILE.ELEVATOR || val === TILE.MEETING || val === TILE.HR) {
             drawGoalBeacon(pX, pY, val, ready);
-          } else if (val === TILE.GPU) {
+          } else if (val === TILE.PART) {
+            // the part is labelled, and "ניקוב" is far wider than "CD", so the
+            // plate is measured off the text instead of a fixed 22px
+            const kit = S.floor.kit;
+            ctx.font = 'bold 8px Arial';
+            const w = Math.max(22, ctx.measureText(kit.short).width + 7);
             ctx.save();
-            ctx.shadowColor = '#0f0'; ctx.shadowBlur = 7;
-            ctx.fillStyle = '#19d419'; ctx.fillRect(pX - 11, pY - 9 + bop, 22, 11);
+            ctx.shadowColor = kit.hue; ctx.shadowBlur = 7;
+            ctx.fillStyle = kit.hue; ctx.fillRect(pX - w / 2, pY - 9 + bop, w, 11);
             ctx.restore();
-            ctx.fillStyle = '#042604'; ctx.font = 'bold 8px Arial';
-            ctx.fillText('GPU', pX, pY - 1 + bop);
+            ctx.save();
+            // the page is dir="rtl", which would move the inch mark of 3.5" to
+            // the front of the label. Hebrew labels read the same either way.
+            ctx.direction = 'ltr';
+            ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.font = 'bold 8px Arial';
+            ctx.fillText(kit.short, pX, pY - 1 + bop);
+            ctx.restore();
           } else if (isDesk(val)) {
             const upgraded = (val === TILE.DESK_UP || val === TILE.DESK_UP_SAD);
             const sad = (val === TILE.DESK_SAD || val === TILE.DESK_UP_SAD);
@@ -2063,31 +2093,36 @@
             ctx.closePath();
             ctx.fillStyle = '#9b7352'; ctx.fill();
             ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1; ctx.stroke();
-            // a lit monitor on the desk: green once it has been given a GPU
+            // a lit monitor on the desk, in the colour of this era's upgrade
+            const kit = S.floor.kit;
             ctx.save();
-            ctx.shadowColor = upgraded ? '#0f0' : '#39f';
+            ctx.shadowColor = upgraded ? kit.hue : '#39f';
             ctx.shadowBlur = 9;
-            ctx.fillStyle = upgraded ? '#0f0' : '#2f6fae';
+            ctx.fillStyle = upgraded ? kit.hue : '#2f6fae';
             ctx.fillRect(pX - 11, pY - z - 6, 16, 9);
             ctx.restore();
             const hop = sad ? 0 : Math.max(0, Math.sin(S.globalTime * 0.25) * 4);
             ctx.font = '24px Arial'; ctx.fillStyle = '#fff';
             ctx.fillText(sad ? '😭' : '👨‍💻', pX, pY - 10 - hop);
             if (upgraded) {
-              // The GPU card sits at the FRONT edge of the desk and is drawn
-              // last — behind the worker it was simply invisible.
+              // The installed part sits at the FRONT edge of the desk and is
+              // drawn last — behind the worker it was simply invisible.
+              const tag = '✓' + kit.short;
+              ctx.font = 'bold 9px Arial';
+              const cw = Math.max(30, ctx.measureText(tag).width + 8);
               ctx.save();
               ctx.textBaseline = 'middle';
-              ctx.shadowColor = '#0f0'; ctx.shadowBlur = 10;
-              ctx.fillStyle = '#0c7a36';        // installed: deeper than a floor pickup
-              ctx.fillRect(pX - 15, pY + 3, 30, 13);
+              ctx.shadowColor = kit.hue; ctx.shadowBlur = 10;
+              ctx.fillStyle = shade(kit.hue, 0.45);   // deeper than a floor pickup
+              ctx.fillRect(pX - cw / 2, pY + 3, cw, 13);
               ctx.restore();
               ctx.save();
               ctx.textBaseline = 'middle';
-              ctx.strokeStyle = '#7cffb0'; ctx.lineWidth = 1.5;
-              ctx.strokeRect(pX - 15, pY + 3, 30, 13);
-              ctx.fillStyle = '#e6fff0'; ctx.font = 'bold 9px Arial';
-              ctx.fillText('✓GPU', pX, pY + 10);
+              ctx.direction = 'ltr';          // keeps the ✓ and the 3.5" in place
+              ctx.strokeStyle = shade(kit.hue, 1.55); ctx.lineWidth = 1.5;
+              ctx.strokeRect(pX - cw / 2, pY + 3, cw, 13);
+              ctx.fillStyle = '#f2fff7'; ctx.font = 'bold 9px Arial';
+              ctx.fillText(tag, pX, pY + 10);
               ctx.restore();
             }
           }
@@ -2497,7 +2532,7 @@
   // Test seam: lets the headless smoke test validate all 100 floors without
   // having to duplicate the generator.
   window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS,
-                      state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES, reachableWithKeys,
+                      state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES, reachableWithKeys, openBriefing,
                       view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,
                       SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel };
 

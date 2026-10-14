@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#030305">
-<meta name="description" content="REL WORLD - משחק סאטירה איזומטרי על הדרך למנכ&quot;לות. 100 קומות, צ'אפחות, GPU וקצת יותר מדי ישיבות.">
+<meta name="description" content="REL WORLD - משחק סאטירה איזומטרי על הדרך למנכ&quot;לות. 100 קומות, צ'אפחות, חומרה מכל תקופה וקצת יותר מדי ישיבות.">
 <title>REL WORLD - A CEO QUEST FOR GLORY</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕴️</text></svg>">
 <link rel="stylesheet" href="src/styles.css">
@@ -21,7 +21,7 @@
     <span class="ui-item">📈 <span id="score">0</span></span>
     <span class="ui-item">🔑 <span id="keys">0</span></span>
     <span class="ui-item">🗝️ <span id="masterKey">❌</span></span>
-    <span class="ui-item gpu">🟩 <span id="gpus">0</span></span>
+    <span class="ui-item part"><span id="partIcon">🟩</span> <span id="parts">0</span></span>
     <span class="ui-item strikes">⚠️ <span id="strikes">0/3</span></span>
     <span class="ui-item combo" id="comboBox" hidden>🔥 x<span id="combo">1</span></span>
   </div>
@@ -53,10 +53,10 @@
         <h3>❔ איך משחקים</h3>
         <ul class="help-list">
           <li><b>חיצים / WASD</b> – תנועה (אפשר להחזיק)</li>
-          <li><b>רווח</b> – צ'אפחה / חלוקת GPU</li>
+          <li><b>רווח</b> – צ'אפחה / חלוקת החומרה</li>
           <li><b>P</b> – השהיה, <b>M</b> – מוזיקה</li>
           <li>בנייד: ד-פד, או <b>החלקה</b> על המסך ונגיעה לפעולה</li>
-          <li>אסוף 🟩 GPU, שדרג עמדות, חלק צ'אפחות והגע ליעד הקומה</li>
+          <li>אסוף את החומרה של התקופה (תקליטון, CD, דיסק-און-קי, GPU…), שדרג עמדות, חלק צ'אפחות והגע ליעד הקומה</li>
           <li>🔑 פותח דלת כתומה, 🗝️ מאסטר פותח (וגם נועל) דלתות אדומות</li>
           <li>המנהל המקביל 👺 נותן אזהרה – שלוש אזהרות ואתה מפוטר</li>
         </ul>
@@ -153,7 +153,7 @@
   <div class="action-pad">
     <button type="button" class="action-btn" id="btnAction">
       <span>⚡ פעולה</span>
-      <span class="hint">כאפה / GPU</span>
+      <span class="hint">כאפה / שדרוג</span>
     </button>
   </div>
 </div>

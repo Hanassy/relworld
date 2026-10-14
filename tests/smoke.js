@@ -81,10 +81,10 @@ function serve() {
       }
       if (!f.tag) problems.push(`L${i + 1}: no destination name`);
 
-      let gpus = 0, desks = 0, coins = 0, keys = 0, doors = 0;
+      let parts = 0, desks = 0, coins = 0, keys = 0, doors = 0;
       for (let y = 0; y < 20; y++) for (let x = 0; x < 20; x++) {
         const t = m[y][x];
-        if (t === TILE.GPU) { gpus++; if (!seen[y][x]) problems.push(`L${i + 1}: GPU walled off`); }
+        if (t === TILE.PART) { parts++; if (!seen[y][x]) problems.push(`L${i + 1}: part walled off`); }
         else if (t === TILE.COIN) { coins++; if (!seen[y][x]) problems.push(`L${i + 1}: coin walled off`); }
         else if (t === TILE.KEY) { keys++; if (!seen[y][x]) problems.push(`L${i + 1}: key walled off`); }
         else if (t === TILE.MKEY && !seen[y][x]) problems.push(`L${i + 1}: master key walled off`);
@@ -96,7 +96,7 @@ function serve() {
         }
       }
       if (desks !== f.desks) problems.push(`L${i + 1}: desk count mismatch`);
-      if (f.type === 0 && gpus < desks) problems.push(`L${i + 1}: only ${gpus} GPUs for ${desks} desks`);
+      if (f.type === 0 && parts < desks) problems.push(`L${i + 1}: only ${parts} parts for ${desks} desks`);
       if (f.type === 1 && coins < f.coinQuota) problems.push(`L${i + 1}: coin quota above supply`);
       if (keys < doors) problems.push(`L${i + 1}: ${keys} keys for ${doors} locked doors`);
       if (!f.spawns.length) problems.push(`L${i + 1}: nowhere to spawn a rival`);
@@ -220,7 +220,7 @@ function serve() {
 
   await page.evaluate(() => {
     const s = window.RelWorld.state;
-    s.slaps = s.floor.desks; s.gpusGiven = s.floor.desks;
+    s.slaps = s.floor.desks; s.partsGiven = s.floor.desks;
     s.keys = 9; s.masterKey = true; s.timeLeft = 400;
   });
   const walk = await page.evaluate(async () => {
@@ -530,6 +530,106 @@ function serve() {
     hints.first && hints.second && !hints.third && !hints.late, JSON.stringify(hints));
   check('every floor still names its destination out loud',
     hints.lateNamesGoal && hints.firstNamesGoal);
+
+  /* ---- 8. the hardware handed out belongs to the mission's own year ---- */
+  const era = await page.evaluate(() => {
+    const L = window.REL_LEVELS, T = window.REL_TECH;
+    const bad = [];
+    // the ladder has to climb, or techFor would pick the wrong rung
+    for (let k = 1; k < T.length; k++) if (T[k].from <= T[k - 1].from) bad.push(`rung ${T[k].id} out of order`);
+    // every rung needs the five fields the renderer and the briefing read
+    for (const t of T) {
+      if (!t.name || !t.b || !t.short || !t.icon || !/^#[0-9a-f]{6}$/i.test(t.hue)) bad.push(`rung ${t.id} incomplete`);
+      if (!t.b.startsWith('ב')) bad.push(`rung ${t.id}: "${t.b}" is not a ב- phrase`);
+    }
+    const used = new Set();
+    L.forEach((l, i) => {
+      if (!l.kit) { bad.push(`L${i + 1}: no kit`); return; }
+      used.add(l.kit.id);
+      if (l.era < l.kit.from) bad.push(`L${i + 1}: ${l.kit.id} did not exist in ${l.era}`);
+      const next = T[T.indexOf(l.kit) + 1];
+      if (next && l.era >= next.from) bad.push(`L${i + 1}: ${l.era} should already be on ${next.id}`);
+      // a mission must never name hardware from a different era than its own.
+      // Matched on the full name, not the short label: "סרט" is a substring of
+      // "הסרטון" and would flag an Uber mission for naming a tape reel.
+      for (const t of T) {
+        if (t === l.kit) continue;
+        if (l.text.includes(t.name) || l.text.includes(t.b)) {
+          bad.push(`L${i + 1}: ${l.era} text names ${t.name}`);
+        }
+      }
+    });
+    // a rung nothing lands on is dead data: the ladder tracks the missions
+    for (const t of T) if (!used.has(t.id)) bad.push(`rung ${t.id} is never used`);
+    // and a rung must not borrow a glyph the HUD already spends on something else
+    for (const t of T) if (['🔑', '🗝️', '🪙', '⚠️', '📈', '🏢'].includes(t.icon)) {
+      bad.push(`rung ${t.id} reuses the HUD icon ${t.icon}`);
+    }
+    return { bad, rungs: T.length, used: used.size };
+  });
+  check('every floor hands out hardware that existed in its year',
+    era.bad.length === 0, era.bad.slice(0, 4).join(' | ') || `${era.used}/${era.rungs} rungs in play`);
+
+  // negative control: the same audit, run over a deliberately mis-dated floor
+  const eraCtrl = await page.evaluate(() => {
+    const T = window.REL_TECH;
+    const fake = { era: 2023, text: 'שדרג כל עמדה בתקליטון 3.5', kit: T.find(t => t.id === 'floppy35') };
+    const caught = [];
+    const next = T[T.indexOf(fake.kit) + 1];
+    if (next && fake.era >= next.from) caught.push('wrong rung');
+    for (const t of T) if (t !== fake.kit && fake.text.includes(t.short)) caught.push('wrong name');
+    return caught;
+  });
+  check('the era audit is not vacuous', eraCtrl.includes('wrong rung'), eraCtrl.join(','));
+
+  // the HUD and the briefing both have to say what this floor hands out
+  const shown = await page.evaluate(() => {
+    const api = window.RelWorld;
+    // one upgrade floor per rung that any floor actually uses
+    const seen = new Set(), picks = [];
+    api.LEVELS.forEach((l, i) => {
+      if (l.type === 0 && !seen.has(l.kit.id)) { seen.add(l.kit.id); picks.push(i); }
+    });
+    return picks.map(lvl => {
+      api.openBriefing(lvl, true);
+      const kit = api.state.floor.kit;
+      return { lvl, id: kit.id,
+               chip: document.getElementById('bObjectives').textContent.includes(kit.b),
+               icon: document.getElementById('partIcon').textContent === kit.icon };
+    });
+  });
+  check('the briefing and HUD name this floor\'s own hardware',
+    shown.length > 6 && shown.every(r => r.icon && r.chip),
+    shown.map(r => `${r.lvl + 1}:${r.id}`).join(' '));
+
+  /* ---- 9. 3.5" on an rtl page: the trailing quote would jump to the front ---- */
+  const ltr = await page.evaluate(async () => {
+    const api = window.RelWorld;
+    // a floor whose label actually carries the inch mark
+    const lvl = api.LEVELS.findIndex(l => l.type === 0 && l.kit.short.includes('"'));
+    api.openBriefing(lvl, true);
+    document.getElementById('btnGo').click();
+    // the dive-in camera has to settle, or the floor is still drawn undetailed
+    await new Promise(r => setTimeout(r, 1500));
+    // make sure one is lying right next to the player, in shot and in detail
+    const s = api.state;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const x = s.player.x + dx, y = s.player.y + dy;
+      if (s.map[y] && s.map[y][x] !== undefined && s.map[y][x] !== api.TILE.WALL) s.map[y][x] = api.TILE.PART;
+    }
+    const short = s.floor.kit.short, seen = [];
+    const proto = CanvasRenderingContext2D.prototype, real = proto.fillText;
+    proto.fillText = function (t, ...rest) {
+      if (typeof t === 'string' && t.includes(short)) seen.push(this.direction);
+      return real.call(this, t, ...rest);
+    };
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    proto.fillText = real;
+    return { short, seen: [...new Set(seen)], n: seen.length };
+  });
+  check('the inch mark stays at the end of 3.5" on an rtl page',
+    ltr.n > 0 && ltr.seen.length === 1 && ltr.seen[0] === 'ltr',
+    `${ltr.short} drawn ${ltr.n}x as ${ltr.seen.join('/')}`);
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

@@ -67,7 +67,7 @@ h1 {
 #levelDisplay { color: #0ff; }
 #score { color: #0fc; }
 #keys { color: var(--gold); }
-.ui-item.gpu { color: var(--green); }
+.ui-item.part { color: var(--green); }
 .ui-item.strikes { color: #ffa500; }
 .ui-item.combo { color: #ff7b00; font-weight: bold; }
 

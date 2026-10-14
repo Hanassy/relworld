@@ -197,7 +197,9 @@
      than mangling Hebrew through an English voice. */
   const Narrator = (function () {
     const synth = window.speechSynthesis;
-    let fallbackId = null, boundarySeen = false, guardId = null;
+    let fallbackId = null, boundarySeen = false, guardId = null, gapId = null;
+    let queue = [], qi = 0;
+    const SENTENCE_GAP = 420;        // ms of silence at a full stop
     let startedAt = 0, estimate = 1, onProgress = null;
 
     if (synth && typeof synth.addEventListener === 'function') {
@@ -216,6 +218,8 @@
     function stop() {
       if (fallbackId) { clearInterval(fallbackId); fallbackId = null; }
       if (guardId) { clearTimeout(guardId); guardId = null; }
+      if (gapId) { clearTimeout(gapId); gapId = null; }
+      queue = []; qi = 0;
       onProgress = null;
       try { if (synth) synth.cancel(); } catch (e) { /* ignore */ }
     }
@@ -230,6 +234,20 @@
       }, 60);
     }
 
+    // Split on sentence ends (and colons) so each one can be spoken as its own
+    // utterance. A single utterance barely pauses at a full stop; a real gap
+    // between utterances is the only way to control that.
+    function sentencesOf(text) {
+      const out = [];
+      const re = /[^.!?:]+[.!?:]*\s*/g;
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const trimmed = m[0].replace(/\s+$/, '');
+        if (trimmed.trim()) out.push({ text: trimmed, offset: m.index });
+      }
+      return out.length ? out : [{ text, offset: 0 }];
+    }
+
     function speak(text, progressCb) {
       stop();
       onProgress = progressCb;
@@ -240,23 +258,37 @@
       const canSpeak = options.narration && synth && window.SpeechSynthesisUtterance && (voice || !known);
       if (!canSpeak) { runSilent(); return; }
 
-      try {
-        const u = new SpeechSynthesisUtterance(text);
-        u.lang = 'he-IL';
-        if (voice) u.voice = voice;
-        u.rate = 0.98;
-        u.onboundary = e => {
-          if (e.name && e.name !== 'word') return;
-          boundarySeen = true;
-          if (fallbackId) { clearInterval(fallbackId); fallbackId = null; }
-          if (onProgress) onProgress(Math.min(1, (e.charIndex || 0) / Math.max(1, text.length)));
-        };
-        u.onend = () => { if (onProgress) onProgress(1); };
-        u.onerror = () => runSilent();
-        synth.speak(u);
-        // Some voices never emit boundary events: fall back to the timed read.
-        guardId = setTimeout(() => { if (!boundarySeen) runSilent(); }, 900);
-      } catch (e) { runSilent(); }
+      const total = Math.max(1, text.length);
+      queue = sentencesOf(text);
+      qi = 0;
+
+      const sayNext = () => {
+        if (qi >= queue.length) { if (onProgress) onProgress(1); return; }
+        const part = queue[qi];
+        try {
+          const u = new SpeechSynthesisUtterance(part.text);
+          u.lang = 'he-IL';
+          if (voice) u.voice = voice;
+          u.rate = 0.98;
+          u.onboundary = e => {
+            if (e.name && e.name !== 'word') return;
+            boundarySeen = true;
+            if (fallbackId) { clearInterval(fallbackId); fallbackId = null; }
+            if (onProgress) onProgress(Math.min(1, (part.offset + (e.charIndex || 0)) / total));
+          };
+          u.onend = () => {
+            qi++;
+            if (onProgress) onProgress(Math.min(1, (part.offset + part.text.length) / total));
+            gapId = setTimeout(sayNext, SENTENCE_GAP);
+          };
+          u.onerror = () => runSilent();
+          synth.speak(u);
+        } catch (e) { runSilent(); }
+      };
+
+      sayNext();
+      // Some voices never emit boundary events: fall back to the timed read.
+      guardId = setTimeout(() => { if (!boundarySeen) runSilent(); }, 900);
     }
 
     return { speak, stop };
@@ -1118,18 +1150,31 @@
     S.brief.words = [];
     S.brief.textLen = Math.max(1, text.length);
     S.brief.wordIndex = -2;
+    // Each sentence goes on its own line: it matches the pause the narrator
+    // takes at a full stop, and gives the eye somewhere to rest.
+    let line = document.createElement('span');
+    line.className = 'sent';
+    host.appendChild(line);
     const re = /\S+/g;
     let m, last = 0;
     while ((m = re.exec(text)) !== null) {
-      if (m.index > last) host.appendChild(document.createTextNode(text.slice(last, m.index)));
+      if (m.index > last) line.appendChild(document.createTextNode(text.slice(last, m.index)));
       const span = document.createElement('span');
       span.className = 'w';
       span.textContent = m[0];
-      host.appendChild(span);
+      line.appendChild(span);
       S.brief.words.push({ start: m.index, el: span });
       last = m.index + m[0].length;
+      // a colon is a good place for the narrator to breathe but a poor place to
+      // break the line, so only a full stop starts a new one
+      if (/[.!?]$/.test(m[0])) {
+        line = document.createElement('span');
+        line.className = 'sent';
+        host.appendChild(line);
+      }
     }
-    if (last < text.length) host.appendChild(document.createTextNode(text.slice(last)));
+    if (last < text.length) line.appendChild(document.createTextNode(text.slice(last)));
+    if (!line.childNodes.length) host.removeChild(line);
   }
 
   function narrationProgress(p) {
@@ -1166,7 +1211,7 @@
     // the blinking-arrow explanation is a tutorial line: say it on the first
     // couple of floors and then stop repeating it every single briefing
     const hint = i >= 2 ? ''
-      : pointed ? ' הַחֵץ הַמֶהַבהֵב מַצבִּיעַ לֶשָׁם לֶאוֹרֶך כּוֹל הַקוֹמָה.'
+      : pointed ? ' הַחֵץ הַמָהַבהֵב מַצבִּיעַ לָשָׁם לָאוֹרֶך כּוֹל הַקוֹמָה.'
                 : ' החץ המהבהב מצביע לשם לאורך כל הקומה.';
     const lead = pointed ? ' הַיַעַד שֶׁלךָ: ' : ' היעד שלך: ';
     return `${STORY[i].text}${lead}${goalTag(i)}.${hint}`;

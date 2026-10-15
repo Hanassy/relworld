@@ -1306,13 +1306,13 @@
 
   /** What actually gets read out: the mission, then where to end up. */
   function missionScript(i) {
-    const pointed = isPointed(STORY[i].text);
+    /* Every mission carries vowel points now (tools/vocalize.js, enforced by
+       the suite), so the lines the engine adds around one are pointed too —
+       dropping into bare Hebrew mid-sentence changes how the voice reads it. */
     // the blinking-arrow explanation is a tutorial line: say it on the first
     // couple of floors and then stop repeating it every single briefing
-    const hint = i >= 2 ? ''
-      : pointed ? ' הַחֵץ הַמֵהַבהֵב מַצבִּיעַ לֵשָׁם לֵאוֹרֶך כּוֹל הַקוֹמָה.'
-                : ' החץ המהבהב מצביע לשם לאורך כל הקומה.';
-    const lead = pointed ? ' הַיַעַד שֶׁלךָ: ' : ' היעד שלך: ';
+    const hint = i >= 2 ? '' : ' הַחֵץ הַמֵהַבהֵב מַצבִּיעַ לֵשָׁם לֵאוֹרֶך כּוֹל הַקוֹמָה.';
+    const lead = ' הַיַעַד שֶׁלךָ: ';
     // the epigraph is read once, before the very first mission
     const epi = i === 0 ? EPIGRAPH.say + ' ' : '';
     return `${epi}${STORY[i].text}${lead}${goalTag(i)}.${hint}`;

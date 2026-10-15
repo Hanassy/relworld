@@ -143,7 +143,7 @@ function serve() {
     let pointedCount = 0;
     for (let i = 0; i < L.length; i++) {
       const texts = [L[i].text, L[i].sub, script(i)];
-      if (marks(L[i].text) < 8) continue;
+      if (marks(L[i].text) < 8) { bad.push(`L${i + 1}: mission is not vocalised`); continue; }
       pointedCount++;
       for (const t of texts) {
         if (t.indexOf('\u05B0') >= 0) bad.push(`L${i + 1}: shva (silent ones are dropped, vocal ones become segol/patach)`);
@@ -151,11 +151,11 @@ function serve() {
         if (t.indexOf("\u05E6'\u05D0") >= 0) bad.push(`L${i + 1}: alef inside the slap word — the engine voices it`);
       }
     }
-    return { pointedCount, bad: [...new Set(bad)] };
+    return { pointedCount, total: L.length, bad: [...new Set(bad)] };
   });
-  check('pointed missions follow the phonetic niqqud convention',
-    pointing.bad.length === 0,
-    `${pointing.pointedCount} pointed${pointing.bad.length ? ': ' + pointing.bad.slice(0, 3).join('; ') : ''}`);
+  check('every mission is vocalised, and follows the phonetic niqqud convention',
+    pointing.bad.length === 0 && pointing.pointedCount === pointing.total,
+    `${pointing.pointedCount}/${pointing.total} pointed${pointing.bad.length ? ': ' + pointing.bad.slice(0, 3).join('; ') : ''}`);
 
   // Negative control: a validator that cannot fail proves nothing, so hand it a
   // floor where the only key sits behind the door it opens.

@@ -1,6 +1,6 @@
 # REL WORLD — A CEO QUEST FOR GLORY
 
-משחק סאטירה איזומטרי על הדרך למנכ"לות: 109 קומות של היי-טק, צ'אפחות האצה,
+משחק סאטירה איזומטרי על הדרך למנכ"לות: 110 קומות של היי-טק, צ'אפחות האצה,
 חומרה מכל תקופה, מנהלים מקבילים ודלתות שאף אחד לא יודע מי נעל.
 הכל רץ בדפדפן, בלי שרת, בלי build ובלי ספריות חיצוניות.
 
@@ -109,9 +109,9 @@
 ```
 index.html        שלד הדף והמסכים
 src/styles.css    עיצוב, RTL ופריסה לנייד
-src/levels.js     109 הקומות: משימות, ציטוטים, תקופה ו-scene לכל קומה (מקור יחיד, מזין גם את LEVELS.md)
+src/levels.js     110 הקומות: משימות, ציטוטים, תקופה ו-scene לכל קומה (מקור יחיד, מזין גם את LEVELS.md)
 src/game.js       המנוע: יצירת קומות, AI, רינדור איזומטרי, קלט, אודיו
-LEVELS.md         כל 109 המשימות והציטוטים, לקריאה
+LEVELS.md         כל 110 המשימות והציטוטים, לקריאה
 tests/smoke.js    בדיקות אוטומטיות בדפדפן אמיתי
 ```
 
@@ -143,7 +143,7 @@ tests/smoke.js    בדיקות אוטומטיות בדפדפן אמיתי
 
 ```sh
 npm install --no-save playwright
-node tests/smoke.js        # 45 checks in a real browser
+node tests/smoke.js        # 49 checks in a real browser
 npx eslint src tests       # no build step, no config to write
 ```
 

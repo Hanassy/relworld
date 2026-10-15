@@ -107,6 +107,14 @@
     { id: 'gpu', name: 'כרטיס GPU', b: 'ב-GPU', short: 'GPU', icon: '🟩', hue: '#19d419' };
   const kitFor = i => (LEVELS[i] && LEVELS[i].kit) || LAST_KIT;
 
+  /* The one quotation in the game that is plain good sense rather than a
+     delusion, so it opens the game instead of closing a floor: every floor
+     above is built on it, starting with the clerks who have only paper. */
+  const EPIGRAPH = {
+    say: '״מַחשֵׁב עַל כּוֹל שׁוּלחָן וּבֵכוֹל בַּיִת.״ בִּיל גֵייטס, 1980.',
+    lines: 1
+  };
+
   const GOAL_TILE = [TILE.ELEVATOR, TILE.MEETING, TILE.HR];
   const GOAL_NAME = ['המעלית 🔼', 'חדר הישיבות 🗓️', 'משרד HR 👩‍⚖️'];
   // Chad first, then the rest of the management layer he brought with him
@@ -1196,7 +1204,40 @@
   }
 
   /** Splits the mission text into word spans we can light up one at a time. */
-  function renderNarration(text) {
+  /** Wraps every word of `text` in its own span inside `host`, and hands back
+      the list the read-along highlights. Shared by the briefing and by the
+      quote on the level-clear screen. */
+  function splitWords(host, text) {
+    host.textContent = '';
+    const words = [];
+    const re = /\S+/g;
+    let m, last = 0;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) host.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const span = document.createElement('span');
+      span.className = 'w';
+      span.textContent = m[0];
+      host.appendChild(span);
+      words.push({ start: m.index, el: span });
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) host.appendChild(document.createTextNode(text.slice(last)));
+    return words;
+  }
+
+  /** Lights the word the narrator has reached, and dims the ones behind it. */
+  function highlightWords(words, total, progress) {
+    if (!words.length) return;
+    const at = clamp(progress, 0, 1) * Math.max(1, total);
+    let idx = 0;
+    while (idx + 1 < words.length && words[idx + 1].start <= at) idx++;
+    for (let i = 0; i < words.length; i++) {
+      words[i].el.classList.toggle('now', i === idx);
+      words[i].el.classList.toggle('said', i < idx);
+    }
+  }
+
+  function renderNarration(text, epiLines) {
     const host = $('bText');
     // vowel points need more room than bare letters or they turn to mush
     host.classList.toggle('pointed', isPointed(text));
@@ -1229,6 +1270,10 @@
     }
     if (last < text.length) line.appendChild(document.createTextNode(text.slice(last)));
     if (!line.childNodes.length) host.removeChild(line);
+    // the opening quotation is set apart from the mission it introduces
+    for (let n = 0; n < (epiLines || 0) && n < host.childNodes.length; n++) {
+      host.childNodes[n].classList.add('epi');
+    }
   }
 
   function narrationProgress(p) {
@@ -1268,12 +1313,14 @@
       : pointed ? ' הַחֵץ הַמֵהַבהֵב מַצבִּיעַ לֵשָׁם לֵאוֹרֶך כּוֹל הַקוֹמָה.'
                 : ' החץ המהבהב מצביע לשם לאורך כל הקומה.';
     const lead = pointed ? ' הַיַעַד שֶׁלךָ: ' : ' היעד שלך: ';
-    return `${STORY[i].text}${lead}${goalTag(i)}.${hint}`;
+    // the epigraph is read once, before the very first mission
+    const epi = i === 0 ? EPIGRAPH.say + ' ' : '';
+    return `${epi}${STORY[i].text}${lead}${goalTag(i)}.${hint}`;
   }
 
   function narrateMission() {
     const story = missionScript(S.level);
-    renderNarration(story);
+    renderNarration(story, S.level === 0 ? EPIGRAPH.lines : 0);
     narrationProgress(0);
     S.brief.tourBase = S.brief.t >= BRIEF_OPEN_MS ? 0 : -1;
     Narrator.speak(story, narrationProgress);
@@ -1373,7 +1420,16 @@
       `<div class="q-text">״${q.t}״</div><div class="q-who">— ${q.who}, ${q.year}</div>`;
     $('btnNext').textContent = S.level >= FLOORS - 1 ? 'לסיום הקריירה' : 'לקומה הבאה';
     refreshStatus();
-    setTimeout(() => { if (S.state === 'clear') showScreen('clear'); }, 900);
+    setTimeout(() => {
+      if (S.state !== 'clear') return;
+      showScreen('clear');
+      // the quote is the punchline of the floor, so it is read out loud, with
+      // the words lighting up the way the mission's do
+      const el = $('clearQuote').querySelector('.q-text');
+      const said = `״${q.t}״`;
+      const words = splitWords(el, said);
+      Narrator.speak(said, p => highlightWords(words, said.length, p));
+    }, 900);
   }
 
   function gameOver(reason, victory) {
@@ -2140,17 +2196,34 @@
             ctx.closePath();
             ctx.fillStyle = '#9b7352'; ctx.fill();
             ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1; ctx.stroke();
-            // a lit monitor on the desk, in the colour of this era's upgrade
+            /* Who is sitting here depends on the year. Before the computer
+               reached the desk these are clerks with a stack of paper and no
+               screen at all; on the floor where the PC arrives they are clerks
+               until you hand them one, and a developer after. */
             const kit = S.floor.kit;
-            ctx.save();
-            ctx.shadowColor = upgraded ? kit.hue : '#39f';
-            ctx.shadowBlur = 9;
-            ctx.fillStyle = upgraded ? kit.hue : '#2f6fae';
-            ctx.fillRect(pX - 11, pY - z - 6, 16, 9);
-            ctx.restore();
+            const paper = kit.age === 'paper' || (kit.age === 'arrival' && !upgraded);
+            if (paper) {
+              // a stack of forms where the monitor would be
+              ctx.save();
+              ctx.fillStyle = '#efe7d2';
+              ctx.fillRect(pX - 10, pY - z - 2, 14, 7);
+              ctx.fillStyle = '#d9cdb0';
+              ctx.fillRect(pX - 10, pY - z + 1, 14, 2);
+              ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 1;
+              ctx.strokeRect(pX - 10, pY - z - 2, 14, 7);
+              ctx.restore();
+            } else {
+              // a lit monitor on the desk, in the colour of this era's upgrade
+              ctx.save();
+              ctx.shadowColor = upgraded ? kit.hue : '#39f';
+              ctx.shadowBlur = 9;
+              ctx.fillStyle = upgraded ? kit.hue : '#2f6fae';
+              ctx.fillRect(pX - 11, pY - z - 6, 16, 9);
+              ctx.restore();
+            }
             const hop = sad ? 0 : Math.max(0, Math.sin(S.globalTime * 0.25) * 4);
             ctx.font = '24px Arial'; ctx.fillStyle = '#fff';
-            ctx.fillText(sad ? '😭' : '👨‍💻', pX, pY - 10 - hop);
+            ctx.fillText(sad ? '😭' : paper ? '🧑‍💼' : '👨‍💻', pX, pY - 10 - hop);
             if (upgraded) {
               // The installed part sits at the FRONT edge of the desk and is
               // drawn last — behind the worker it was simply invisible.
@@ -2584,7 +2657,8 @@
   // Test seam: lets the headless smoke test validate all 100 floors without
   // having to duplicate the generator.
   window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS,
-                      state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES, reachableWithKeys, openBriefing,
+                      state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES, reachableWithKeys, openBriefing, levelCleared,
+                      stopNarration: Narrator.stop,
                       view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,
                       SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel };
 

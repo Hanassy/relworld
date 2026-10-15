@@ -177,6 +177,8 @@ body.wide-brief .btn-row { justify-content: flex-start; }
 /* niqqud: slightly larger and airier, otherwise the points collapse together */
 .narration.pointed { font-size: 17.5px; line-height: 2; letter-spacing: 0.2px; }
 .narration .sent { display: block; }          /* one sentence per line */
+/* the opening quotation, set apart from the mission it introduces */
+.narration .sent.epi { color: #ffe9a8; font-style: italic; }
 .narration.pointed .sent { margin-bottom: 2px; }
 .narration .w { transition: color 0.12s ease, text-shadow 0.12s ease; }
 .narration .w.said { color: #e8eef5; }
@@ -300,6 +302,10 @@ button.main-btn.small { padding: 5px 14px; font-size: 12px; margin: 0; }
   text-align: right;
 }
 .quote .q-text { font-size: 14px; font-style: italic; color: #ffe9a8; line-height: 1.45; }
+/* the quote is read aloud, so its words light up the way the mission's do */
+.quote .w { transition: color 0.12s ease, text-shadow 0.12s ease; }
+.quote .w.said { color: #fff3cf; }
+.quote .w.now { color: #fff; font-weight: bold; text-shadow: 0 0 12px rgba(255, 204, 0, 0.95); }
 .quote .q-who { font-size: 11px; color: #9ab; margin-top: 4px; }
 
 .name-form { margin-bottom: 6px; font-size: 11px; }

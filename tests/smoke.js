@@ -449,6 +449,7 @@ function serve() {
   // later in the narration the camera moves in on the people on the floor
   const closeUp = await page.evaluate(() => {
     const s = window.RelWorld.state;
+    window.RelWorld.stopNarration();      // or the read-along overwrites progress
     s.brief.progress = 0.45;
     return new Promise(res => setTimeout(() => res({ scale: s.scale }), 1200));
   });
@@ -719,6 +720,45 @@ function serve() {
     crowd[71].length >= 3 && new Set(crowd[71]).size === crowd[71].length &&
     crowd[36].length === 2 && crowd[6].length <= 1,
     Object.entries(crowd).map(([k, v]) => `${k}:${v.join('')}`).join(' '));
+
+  /* ---- 13. the epigraph opens the game, and the quotes are read aloud ---- */
+  const epi = await page.evaluate(() => {
+    const api = window.RelWorld;
+    const bare = s => s.replace(/[\u0591-\u05C7]/g, '');
+    const first = bare(api.missionScript(0));
+    const second = bare(api.missionScript(1));
+    // the script is written in the plene spelling the speech engine needs
+    const spoken = 'מחשב על כול שולחן ובכול בית';
+    const plain = 'מחשב על כל שולחן ובכל בית';
+    return {
+      opensFirst: first.indexOf(spoken) === 1,          // right after the opening ״
+      onlyFirst: !second.includes(spoken),
+      // and it is no longer spent as some floor's closing quote
+      notAQuote: api.QUOTES.every(q => !bare(q.t).includes(plain) && !bare(q.t).includes(spoken))
+    };
+  });
+  check('the game opens on the computer-on-every-desk line, and only there',
+    epi.opensFirst && epi.onlyFirst && epi.notAQuote, JSON.stringify(epi));
+
+  const readQuote = await page.evaluate(async () => {
+    const api = window.RelWorld;
+    api.openBriefing(3, true);
+    document.getElementById('btnGo').click();
+    await new Promise(r => setTimeout(r, 400));
+    const s = api.state;
+    s.slaps = s.floor.desks; s.partsGiven = s.floor.desks; s.coinsGot = s.floor.coinQuota;
+    s.chadSlapped = true;
+    api.levelCleared();
+    await new Promise(r => setTimeout(r, 1300));
+    const el = document.querySelector('#clearQuote .q-text');
+    const words = el ? el.querySelectorAll('span.w').length : 0;
+    const early = el ? el.querySelectorAll('span.w.said, span.w.now').length : 0;
+    await new Promise(r => setTimeout(r, 1500));
+    const later = el ? el.querySelectorAll('span.w.said, span.w.now').length : 0;
+    return { words, early, later };
+  });
+  check('the floor-clear quote is split into words and read along',
+    readQuote.words > 3 && readQuote.later > readQuote.early, JSON.stringify(readQuote));
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

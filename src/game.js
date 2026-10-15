@@ -11,7 +11,7 @@
     KEY: 7, DOOR: 8, ROOM: 9, PART: 12, DESK_UP: 13, DESK_UP_SAD: 14,
     MEETING: 15, HR: 16, MKEY: 17, MDOOR: 18, MDOOR_OPEN: 19
   };
-  const MAP_W = 20, MAP_H = 20, FLOORS = 100;
+  const MAP_W = 20, MAP_H = 20;
   // Tile height close to half the width would be a low, side-on view where tall
   // walls hide half the floor. A taller TH tips the camera towards top-down,
   // and the shorter wall height keeps sight lines open.
@@ -54,7 +54,7 @@
     }
   };
 
-  let unlockedLevel = clamp(parseInt(store.get('rel_unlocked', 0), 10) || 0, 0, FLOORS - 1);
+  let unlockedLevel = Math.max(0, parseInt(store.get('rel_unlocked', 0), 10) || 0);
   let highScores = store.get('rel_scores', []);
   if (!Array.isArray(highScores)) highScores = [];
   let bestScore = store.get('rel_best', 0) || 0;
@@ -83,10 +83,18 @@
     subtitle: l.sub,
     type: l.type,
     text: l.text,
-    goal: l.goal
+    goal: l.goal,
+    // a floor may rename where its exit leads: the tile is still the HR office,
+    // but on the disguise floor you are racing Chad to the grooming meeting
+    goalName: l.goalName,
+    // a floor may put you in costume: the disguise floor is the whole mission
+    avatar: l.avatar || '🕴️'
   }));
   // per-level quote, 1:1 with the floor (no recycling)
   const QUOTES = LEVELS.map(l => l.q);
+  // the tower is exactly as tall as the data, so adding a floor needs no edit here
+  const FLOORS = LEVELS.length;
+  unlockedLevel = Math.min(unlockedLevel, FLOORS - 1);   // a save from a shorter tower
   /* What you hand a worker is whatever was new in the year the mission is set
      in: a 1984 floor runs on 3.5" floppies, only the AI floors see a GPU. The
      ladder itself lives in levels.js next to the data it dates. */
@@ -950,6 +958,7 @@
 
     return { map, roomMask, start, spawns, goal, desks, coins, coinQuota, time, lockFixes,
              type: story.type, tag: goalTag(index), kit: kitFor(index),
+             avatar: story.avatar, goalName: story.goalName || GOAL_NAME[story.type],
              scene: sceneName, palette: scene.pal, roomColor: scene.room, corrColor: scene.corr,
              screens, screenAt, wallTexts, textAt };
   }
@@ -1230,7 +1239,7 @@
     // the blinking-arrow explanation is a tutorial line: say it on the first
     // couple of floors and then stop repeating it every single briefing
     const hint = i >= 2 ? ''
-      : pointed ? ' הַחֵץ הַמָהַבהֵב מַצבִּיעַ לָשָׁם לָאוֹרֶך כּוֹל הַקוֹמָה.'
+      : pointed ? ' הַחֵץ הַמֵהַבהֵב מַצבִּיעַ לֵשָׁם לֵאוֹרֶך כּוֹל הַקוֹמָה.'
                 : ' החץ המהבהב מצביע לשם לאורך כל הקומה.';
     const lead = pointed ? ' הַיַעַד שֶׁלךָ: ' : ' היעד שלך: ';
     return `${STORY[i].text}${lead}${goalTag(i)}.${hint}`;
@@ -1260,9 +1269,9 @@
     $('bObjectives').innerHTML = [
       f.type === 0 ? `${f.kit.icon} שדרג ${f.desks} עמדות ${f.kit.b}` : '',
       f.type === 1 ? `🪙 אסוף ${f.coinQuota} יחידות תקציב` : '',
-      f.type === 2 ? '👺 ולבסוף: צ\'אפחה לבוסניק ומירוץ ל-HR' : '',
+      f.type === 2 ? `👺 ולבסוף: צ'אפחה לבוסניק ומירוץ ל-${f.tag}` : '',
       `🖐️ ${f.desks} צ'אפחות לעובדים`,
-      `🏁 יעד: ${f.tag} — ${GOAL_NAME[f.type]}`,
+      `🏁 יעד: ${f.tag} — ${f.goalName}`,
       `⏳ ${Math.floor(f.time / 60)}:${String(f.time % 60).padStart(2, '0')} על השעון`
     ].filter(Boolean).map(line => `<div>${line}</div>`).join('');
     refreshStatus();          // the top bar already shows this floor's hardware
@@ -2066,18 +2075,25 @@
             // the part is labelled, and "ניקוב" is far wider than "CD", so the
             // plate is measured off the text instead of a fixed 22px
             const kit = S.floor.kit;
+            // the part itself floats above its labelled plate: you can tell a
+            // floppy from a cloud box across the room, and still read which one
+            ctx.save();
+            ctx.shadowColor = kit.hue; ctx.shadowBlur = 8;
+            ctx.font = '17px Arial';
+            ctx.fillText(kit.icon, pX, pY - 13 + bop);
+            ctx.restore();
             ctx.font = 'bold 8px Arial';
             const w = Math.max(22, ctx.measureText(kit.short).width + 7);
             ctx.save();
             ctx.shadowColor = kit.hue; ctx.shadowBlur = 7;
-            ctx.fillStyle = kit.hue; ctx.fillRect(pX - w / 2, pY - 9 + bop, w, 11);
+            ctx.fillStyle = kit.hue; ctx.fillRect(pX - w / 2, pY - 2 + bop, w, 11);
             ctx.restore();
             ctx.save();
             // the page is dir="rtl", which would move the inch mark of 3.5" to
             // the front of the label. Hebrew labels read the same either way.
             ctx.direction = 'ltr';
             ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.font = 'bold 8px Arial';
-            ctx.fillText(kit.short, pX, pY - 1 + bop);
+            ctx.fillText(kit.short, pX, pY + 6 + bop);
             ctx.restore();
           } else if (isDesk(val)) {
             const upgraded = (val === TILE.DESK_UP || val === TILE.DESK_UP_SAD);
@@ -2107,9 +2123,12 @@
             if (upgraded) {
               // The installed part sits at the FRONT edge of the desk and is
               // drawn last — behind the worker it was simply invisible.
+              // the plate keeps the ✓ and the name, and carries the part's own
+              // icon at its leading edge so the desk reads at a glance
               const tag = '✓' + kit.short;
               ctx.font = 'bold 9px Arial';
-              const cw = Math.max(30, ctx.measureText(tag).width + 8);
+              const tw = ctx.measureText(tag).width;
+              const cw = Math.max(34, tw + 22);
               ctx.save();
               ctx.textBaseline = 'middle';
               ctx.shadowColor = kit.hue; ctx.shadowBlur = 10;
@@ -2121,8 +2140,10 @@
               ctx.direction = 'ltr';          // keeps the ✓ and the 3.5" in place
               ctx.strokeStyle = shade(kit.hue, 1.55); ctx.lineWidth = 1.5;
               ctx.strokeRect(pX - cw / 2, pY + 3, cw, 13);
+              ctx.font = '11px Arial';
+              ctx.fillText(kit.icon, pX - cw / 2 + 9, pY + 10);
               ctx.fillStyle = '#f2fff7'; ctx.font = 'bold 9px Arial';
-              ctx.fillText(tag, pX, pY + 10);
+              ctx.fillText(tag, pX + 8, pY + 10);
               ctx.restore();
             }
           }
@@ -2146,7 +2167,7 @@
             ctx.strokeStyle = 'rgba(0,229,255,0.95)'; ctx.lineWidth = 2; ctx.stroke();
             ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 14;
             ctx.font = '36px Arial'; ctx.fillStyle = '#fff';
-            ctx.fillText('🕴️', pX, pY - S.player.animY + 3);
+            ctx.fillText(S.floor.avatar, pX, pY - S.player.animY + 3);
             ctx.restore();
           }
 

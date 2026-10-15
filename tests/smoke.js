@@ -284,13 +284,17 @@ function serve() {
     const el = document.getElementById('clearQuote');
     const shown = (el.querySelector('.q-text') || {}).textContent || '';
     return {
-      levels: L.length, missions: missions.size, quotes: quotes.size,
+      levels: L.length, floors: window.RelWorld.FLOORS,
+      missions: missions.size, quotes: quotes.size,
       matchesFloor1: shown.includes(L[0].q.t.slice(0, 20))
     };
   });
-  check('there are 100 levels with distinct missions', content.levels === 100 && content.missions === 100,
-    `${content.levels} levels, ${content.missions} distinct missions`);
-  check('each level has its own distinct quote', content.quotes === 100, `${content.quotes} distinct quotes`);
+  // the tower is as tall as the data: adding a floor must not need a code edit
+  check('the tower is exactly as tall as the level data, and every mission is its own',
+    content.levels >= 100 && content.floors === content.levels && content.missions === content.levels,
+    `${content.levels} levels, ${content.floors} floors, ${content.missions} distinct missions`);
+  check('each level has its own distinct quote', content.quotes === content.levels,
+    `${content.quotes} distinct quotes`);
   check('the quote shown matches the floor just cleared', content.matchesFloor1);
 
   // the lit floor climbs UP the tower as the career advances (was reversed)
@@ -630,6 +634,52 @@ function serve() {
   check('the inch mark stays at the end of 3.5" on an rtl page',
     ltr.n > 0 && ltr.seen.length === 1 && ltr.seen[0] === 'ltr',
     `${ltr.short} drawn ${ltr.n}x as ${ltr.seen.join('/')}`);
+
+  /* ---- 10. the disguise floor really puts the player in costume ---- */
+  const costume = await page.evaluate(async () => {
+    const api = window.RelWorld;
+    const lvl = api.LEVELS.findIndex(l => l.avatar);
+    if (lvl < 0) return { lvl };
+    const drawn = {};
+    for (const [label, i] of [['costume', lvl], ['plain', 0]]) {
+      api.openBriefing(i, true);
+      document.getElementById('btnGo').click();
+      await new Promise(r => setTimeout(r, 1500));
+      const seen = [];
+      const proto = CanvasRenderingContext2D.prototype, real = proto.fillText;
+      proto.fillText = function (t, ...rest) {
+        if (typeof t === 'string' && /^[\u{1F300}-\u{1FAFF}]/u.test(t) && this.font.startsWith('36px')) seen.push(t);
+        return real.call(this, t, ...rest);
+      };
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      proto.fillText = real;
+      drawn[label] = [...new Set(seen)];
+    }
+    return { lvl, want: api.LEVELS[lvl].avatar, ...drawn };
+  });
+  check('a floor can put the player in costume, and the others do not',
+    costume.lvl >= 0 && costume.costume.includes(costume.want) &&
+    costume.plain.includes('🕴️') && !costume.plain.includes(costume.want),
+    `floor ${costume.lvl + 1}: ${(costume.costume || []).join('')} vs ${(costume.plain || []).join('')}`);
+
+  /* ---- 11. the briefing must not contradict the mission it just read ---- */
+  const dest = await page.evaluate(() => {
+    const api = window.RelWorld, bad = [];
+    api.LEVELS.forEach((l, i) => {
+      api.openBriefing(i, true);
+      const chips = document.getElementById('bObjectives').textContent;
+      // whatever the floor calls its exit is what the briefing has to say
+      if (!chips.includes(l.goal)) bad.push(`L${i + 1}: chip omits ${l.goal}`);
+      // and a renamed destination must not also carry the generic one
+      const generic = ['המעלית 🔼', 'חדר הישיבות 🗓️', 'משרד HR 👩‍⚖️'][l.type];
+      if (l.goalName && chips.includes(generic) && generic !== l.goalName) {
+        bad.push(`L${i + 1}: still says ${generic}`);
+      }
+    });
+    return bad;
+  });
+  check('the briefing names the destination the mission names',
+    dest.length === 0, dest.slice(0, 3).join(' | '));
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

@@ -681,6 +681,45 @@ function serve() {
   check('the briefing names the destination the mission names',
     dest.length === 0, dest.slice(0, 3).join(' | '));
 
+  /* ---- 12. nobody starts the floor standing on you ---- */
+  const clearance = await page.evaluate(() => {
+    const api = window.RelWorld, bad = [];
+    let worst = Infinity, multi = 0;
+    for (let i = 0; i < api.FLOORS; i++) {
+      const f = api.buildFloor(i);
+      // the player's own walk, through doors, is the distance that is felt
+      const d = api.distanceField(f.map, f.start.x, f.start.y, true);
+      for (const sp of f.spawns.slice(0, 3)) {
+        const steps = d[sp.y][sp.x];
+        if (sp.x === f.start.x && sp.y === f.start.y) bad.push(`L${i + 1}: spawn on the player`);
+        else if (!(steps >= 10)) bad.push(`L${i + 1}: spawn ${steps} steps away`);
+        worst = Math.min(worst, steps);
+      }
+      // the exit must be a walk, never the tile you are already standing on
+      if (f.goal.x === f.start.x && f.goal.y === f.start.y) bad.push(`L${i + 1}: exit on the spawn`);
+      if (f.spawns.length >= 3) multi++;
+    }
+    return { bad, worst, multi };
+  });
+  check('no rival starts within reach of the player, and no exit sits on the spawn',
+    clearance.bad.length === 0, clearance.bad.slice(0, 4).join(' | ') || `closest is ${clearance.worst} steps`);
+
+  // the upper floors field a whole management layer, not one cloned Chad
+  const crowd = await page.evaluate(async () => {
+    const api = window.RelWorld, seen = {};
+    for (const lvl of [5, 35, 70]) {
+      api.openBriefing(lvl, true);
+      document.getElementById('btnGo').click();
+      await new Promise(r => setTimeout(r, 300));
+      seen[lvl + 1] = api.state.rivals.map(r => r.face);
+    }
+    return seen;
+  });
+  check('higher floors put several different managers on you, not one face repeated',
+    crowd[71].length >= 3 && new Set(crowd[71]).size === crowd[71].length &&
+    crowd[36].length === 2 && crowd[6].length <= 1,
+    Object.entries(crowd).map(([k, v]) => `${k}:${v.join('')}`).join(' '));
+
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await browser.close();

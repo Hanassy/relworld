@@ -12,6 +12,10 @@
     MEETING: 15, HR: 16, MKEY: 17, MDOOR: 18, MDOOR_OPEN: 19
   };
   const MAP_W = 20, MAP_H = 20;
+  // how many steps a rival starts away from the player, when the floor allows it
+  const SPAWN_CLEARANCE = 12;
+  // and how long you are untouchable after landing on a floor, in ms
+  const ARRIVAL_GRACE = 1600;
   // Tile height close to half the width would be a low, side-on view where tall
   // walls hide half the floor. A taller TH tips the camera towards top-down,
   // and the shorter wall height keeps sight lines open.
@@ -105,6 +109,8 @@
 
   const GOAL_TILE = [TILE.ELEVATOR, TILE.MEETING, TILE.HR];
   const GOAL_NAME = ['המעלית 🔼', 'חדר הישיבות 🗓️', 'משרד HR 👩‍⚖️'];
+  // Chad first, then the rest of the management layer he brought with him
+  const RIVAL_FACES = ['👺', '🤵', '👔'];
   const GOAL_ICON = ['🔼', '🗓️', '👩‍⚖'];
   const GOAL_FALLBACK = ['מעלית', 'ישיבה', 'HR'];
   // short sign-posting name, shown on the blinking waypoint arrow all game long
@@ -612,7 +618,10 @@
     });
 
   /** Breadth-first distance field from a target, used by rival pathfinding. */
-  function distanceField(map, tx, ty) {
+  /** Steps from (tx,ty) to every tile. `passDoors` picks whose world this is:
+      a rival cannot open a door, but the player carries keys, so the exit and
+      the rival spawns have to be measured on different maps. */
+  function distanceField(map, tx, ty, passDoors) {
     const dist = Array.from({ length: MAP_H }, () => new Array(MAP_W).fill(Infinity));
     if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return dist;
     const queue = [[tx, ty]];
@@ -625,7 +634,8 @@
         if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) continue;
         if (dist[ny][nx] !== Infinity) continue;
         const t = map[ny][nx];
-        if (t === TILE.WALL || isDesk(t) || isDoor(t)) continue; // rivals cannot open doors
+        if (t === TILE.WALL || isDesk(t)) continue;
+        if (isDoor(t) && !passDoors) continue;      // rivals cannot open doors
         dist[ny][nx] = dist[y][x] + 1;
         queue.push([nx, ny]);
       }
@@ -791,7 +801,10 @@
 
     // The exit is NOT always in the same corner: pick a reachable tile a decent
     // walk away from the start, seeded so a given floor always matches itself.
-    const fromStartEarly = distanceField(map, start.x, start.y);
+    // measured through doors: this is the player's walk, and the player has keys.
+    // Measured the rival's way instead, a floor whose start room is behind a door
+    // had no tile 12 steps out, and the exit fell back onto the player's own tile.
+    const fromStartEarly = distanceField(map, start.x, start.y, true);
     const goalPicks = [];
     for (let y = 1; y < MAP_H - 1; y++) {
       for (let x = 1; x < MAP_W - 1; x++) {
@@ -925,20 +938,32 @@
       }
     }
 
-    // rival spawns: reachable floor tiles as far from the player as possible
-    const fromStart = distanceField(map, start.x, start.y);
-    const spawns = [];
+    /* Rival spawns: as far from the player as the floor allows. A boss standing
+       next to you on frame one costs a strike before you can press a key, and on
+       a compact floor the old code fell all the way back to the player's own
+       tile — four floors started with Chad inside the player. So the distance
+       bar is lowered a step at a time, and the player's tile is never a spawn. */
+    const fromStart = distanceField(map, start.x, start.y, true);
+    const reachable = [];
     for (let y = 1; y < MAP_H - 1; y++) {
       for (let x = 1; x < MAP_W - 1; x++) {
         const t = map[y][x];
         if (t === TILE.WALL || isDesk(t) || isDoor(t)) continue;
         if (x === goal.x && y === goal.y) continue;
-        if (fromStart[y][x] === Infinity || fromStart[y][x] < 8) continue;
-        spawns.push({ x, y, d: fromStart[y][x] });
+        if (x === start.x && y === start.y) continue;
+        const d = fromStart[y][x];
+        if (d === Infinity) continue;
+        reachable.push({ x, y, d });
       }
     }
-    spawns.sort((a, b) => b.d - a.d);
-    if (!spawns.length) spawns.push({ x: start.x, y: start.y, d: 0 });
+    reachable.sort((a, b) => b.d - a.d);
+    let spawns = [];
+    for (const bar of [SPAWN_CLEARANCE, 9, 7, 5, 1]) {
+      spawns = reachable.filter(c => c.d >= bar);
+      if (spawns.length) break;
+    }
+    // last resort on a floor with nowhere to stand: the far side of the room
+    if (!spawns.length) spawns = reachable.length ? [reachable[0]] : [{ x: start.x, y: start.y, d: 0 }];
 
     const coinQuota = story.type === 1 ? Math.max(1, Math.ceil(coins * 0.6)) : 0;
     // Budget: pay for the actual workload of this floor, then tighten the screws
@@ -1134,7 +1159,8 @@
     S.floor = f;
     S.map = f.map;
     S.roomMask = f.roomMask;
-    S.player = { x: f.start.x, y: f.start.y, animY: 0, invuln: 0 };
+    // you cannot be caught before you have had a chance to move
+    S.player = { x: f.start.x, y: f.start.y, animY: 0, invuln: ARRIVAL_GRACE };
     S.slaps = 0; S.partsGiven = 0; S.coinsGot = 0; S.chadSlapped = false;
     S.combo = 0; S.comboTimer = 0;
     S.particles = []; S.texts = []; S.slapFx = [];
@@ -1305,13 +1331,18 @@
     S.rivals = [];
     let count = f.type === 0 ? (S.level >= 12 ? 1 : 0) : 1;
     if (S.level >= 30) count++;
-    count = Math.min(count, Math.max(1, f.spawns.length), 2);
+    if (S.level >= 55) count++;          // by mid-tower it is a whole management layer
+    count = Math.min(count, f.spawns.length, 3);
+    /* Only the first one is Chad — the rest are other managers, so a floor with
+       three of them reads as three people and not as one boss cloned. */
     for (let i = 0; i < count; i++) {
-      const spot = f.spawns[Math.min(i, f.spawns.length - 1)];
+      // spread them out: taking consecutive entries would stack them in a corner
+      const spot = f.spawns[Math.min(i * Math.max(1, Math.floor(f.spawns.length / count)),
+                                     f.spawns.length - 1)];
       S.rivals.push({
         x: spot.x, y: spot.y, acc: 0, stun: 0, state: 'roam',
         speed: clamp(300 - S.level * 1.6 - i * 20, 150, 300),
-        boss: i === 0
+        boss: i === 0, face: RIVAL_FACES[i % RIVAL_FACES.length]
       });
     }
   }
@@ -2153,7 +2184,7 @@
             groundShadow(pX, pY, 14);
             ctx.font = '24px Arial'; ctx.fillStyle = '#fff';
             ctx.globalAlpha = r.stun > 0 ? 0.55 : 1;
-            ctx.fillText(r.stun > 0 ? '💫' : r.state === 'raceHR' ? '🏃‍♂️' : '👺', pX, pY - 5);
+            ctx.fillText(r.stun > 0 ? '💫' : r.state === 'raceHR' ? '🏃‍♂️' : (r.face || '👺'), pX, pY - 5);
             ctx.globalAlpha = 1;
           }
 

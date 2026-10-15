@@ -564,6 +564,11 @@ function serve() {
         }
       }
     });
+    L.forEach((l, i) => {
+      if (l.era >= 2000) return;
+      if (l.kit.id === 'gpu' || l.kit.id === 'h100') bad.push(`L${i + 1}: ${l.kit.short} in ${l.era}`);
+      if (/GPU|H100/i.test(l.text + l.sub)) bad.push(`L${i + 1}: text names a GPU in ${l.era}`);
+    });
     // a rung nothing lands on is dead data: the ladder tracks the missions
     for (const t of T) if (!used.has(t.id)) bad.push(`rung ${t.id} is never used`);
     // and a rung must not borrow a glyph the HUD already spends on something else
@@ -721,24 +726,20 @@ function serve() {
     crowd[36].length === 2 && crowd[6].length <= 1,
     Object.entries(crowd).map(([k, v]) => `${k}:${v.join('')}`).join(' '));
 
-  /* ---- 13. the epigraph opens the game, and the quotes are read aloud ---- */
+  /* ---- 13. the opening line is spent on the opening, not on a floor ---- */
   const epi = await page.evaluate(() => {
     const api = window.RelWorld;
     const bare = s => s.replace(/[\u0591-\u05C7]/g, '');
-    const first = bare(api.missionScript(0));
-    const second = bare(api.missionScript(1));
-    // the script is written in the plene spelling the speech engine needs
-    const spoken = 'מחשב על כול שולחן ובכול בית';
     const plain = 'מחשב על כל שולחן ובכל בית';
+    const spoken = 'מחשב על כול שולחן ובכול בית';
     return {
-      opensFirst: first.indexOf(spoken) === 1,          // right after the opening ״
-      onlyFirst: !second.includes(spoken),
-      // and it is no longer spent as some floor's closing quote
-      notAQuote: api.QUOTES.every(q => !bare(q.t).includes(plain) && !bare(q.t).includes(spoken))
+      // it is the game's epigraph, so no floor may also close on it
+      notAQuote: api.QUOTES.every(q => !bare(q.t).includes(plain) && !bare(q.t).includes(spoken)),
+      isEpigraph: bare(api.EPIGRAPH.t).includes(spoken)
     };
   });
-  check('the game opens on the computer-on-every-desk line, and only there',
-    epi.opensFirst && epi.onlyFirst && epi.notAQuote, JSON.stringify(epi));
+  check('the computer-on-every-desk line opens the game and is not also a floor quote',
+    epi.isEpigraph && epi.notAQuote, JSON.stringify(epi));
 
   const readQuote = await page.evaluate(async () => {
     const api = window.RelWorld;
@@ -759,6 +760,54 @@ function serve() {
   });
   check('the floor-clear quote is split into words and read along',
     readQuote.words > 3 && readQuote.later > readQuote.early, JSON.stringify(readQuote));
+
+  /* ---- 14. the opening quote is a quote, not a preamble to the mission ---- */
+  const opening = await page.evaluate(async () => {
+    const api = window.RelWorld;
+    const bare = s => s.replace(/[\u0591-\u05C7]/g, '');
+    const out = {};
+    for (const lvl of [0, 1]) {
+      api.openBriefing(lvl, true);
+      await new Promise(r => setTimeout(r, 300));
+      const box = document.getElementById('briefQuote');
+      out[lvl] = {
+        shown: !box.hidden,
+        words: box.hidden ? 0 : box.querySelectorAll('span.w').length,
+        // the attribution sits in the box, and never inside the mission text
+        credits: box.hidden ? '' : (box.querySelector('.q-who') || {}).textContent || '',
+        inScript: bare(api.missionScript(lvl)).includes('מחשב על כול שולחן')
+      };
+    }
+    return out;
+  });
+  check('the opening quote is shown in a quote box on floor 1 only, not glued to the mission',
+    opening[0].shown && opening[0].words > 6 && opening[0].credits.includes('1980') &&
+    !opening[0].inScript && !opening[1].shown && !opening[1].inScript,
+    JSON.stringify(opening));
+
+  // and both quotes say who said it, out loud
+  const credited = await page.evaluate(async () => {
+    const api = window.RelWorld;
+    api.openBriefing(3, true);
+    document.getElementById('btnGo').click();
+    await new Promise(r => setTimeout(r, 400));
+    const s = api.state;
+    s.slaps = s.floor.desks; s.partsGiven = s.floor.desks; s.coinsGot = s.floor.coinQuota;
+    s.chadSlapped = true;
+    api.levelCleared();
+    await new Promise(r => setTimeout(r, 1300));
+    const who = document.querySelector('#clearQuote .q-who');
+    const early = document.querySelectorAll('#clearQuote .w.said, #clearQuote .w.now').length;
+    // let the read-along run past the end of the quotation itself
+    await new Promise(r => setTimeout(r, 4000));
+    return {
+      whoWords: who ? who.querySelectorAll('span.w').length : 0,
+      whoRead: who ? who.querySelectorAll('span.w.said, span.w.now').length : 0,
+      early
+    };
+  });
+  check('the closing quote reads its attribution too, not just the line',
+    credited.whoWords > 2 && credited.whoRead > 0, JSON.stringify(credited));
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

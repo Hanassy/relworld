@@ -111,9 +111,24 @@
      delusion, so it opens the game instead of closing a floor: every floor
      above is built on it, starting with the clerks who have only paper. */
   const EPIGRAPH = {
-    say: '״מַחשֵׁב עַל כּוֹל שׁוּלחָן וּבֵכוֹל בַּיִת.״ בִּיל גֵייטס, 1980.',
-    lines: 1
+    t: 'מַחשֵׁב עַל כּוֹל שׁוּלחָן וּבֵכוֹל בַּיִת.',
+    who: 'בִּיל גֵייטס, חֵזוֹן מַיקרוֹסוֹפט', year: 1980
   };
+
+  /** Fills a .quote box and hands back the read-along the narrator drives.
+      Used for the opening epigraph and for every floor's closing quote, so
+      both are shown the same way and both read the attribution out loud. */
+  function showQuote(box, q) {
+    box.innerHTML = '<div class="q-text"></div><div class="q-who"></div>';
+    const said = `״${q.t}״`;
+    const credit = `— ${q.who}, ${q.year}.`;
+    const words = splitWords(box.querySelector('.q-text'), said)
+      .concat(splitWords(box.querySelector('.q-who'), credit)
+        .map(w => ({ start: said.length + 1 + w.start, el: w.el })));
+    // the speaker is part of the line: a quote with no name read out is a rumour
+    const script = `${said} ${credit}`;
+    return { script, words };
+  }
 
   const GOAL_TILE = [TILE.ELEVATOR, TILE.MEETING, TILE.HR];
   const GOAL_NAME = ['המעלית 🔼', 'חדר הישיבות 🗓️', 'משרד HR 👩‍⚖️'];
@@ -236,7 +251,7 @@
     let fallbackId = null, boundarySeen = false, guardId = null, gapId = null;
     let queue = [], qi = 0;
     const SENTENCE_GAP = 420;        // ms of silence at a full stop
-    let startedAt = 0, estimate = 1, onProgress = null;
+    let startedAt = 0, estimate = 1, onProgress = null, onDone = null;
 
     if (synth && typeof synth.addEventListener === 'function') {
       // Chrome populates the voice list asynchronously; this warms it up.
@@ -256,7 +271,7 @@
       if (guardId) { clearTimeout(guardId); guardId = null; }
       if (gapId) { clearTimeout(gapId); gapId = null; }
       queue = []; qi = 0;
-      onProgress = null;
+      onProgress = null; onDone = null;
       try { if (synth) synth.cancel(); } catch (e) { /* ignore */ }
     }
 
@@ -266,8 +281,15 @@
       fallbackId = setInterval(() => {
         const p = Math.min(1, (performance.now() - startedAt) / estimate);
         if (onProgress) onProgress(p);
-        if (p >= 1) { clearInterval(fallbackId); fallbackId = null; }
+        if (p >= 1) { clearInterval(fallbackId); fallbackId = null; finish(); }
       }, 60);
+    }
+
+    /** Fires once when a reading reaches its end, whichever path got it there. */
+    function finish() {
+      const cb = onDone;
+      onDone = null;
+      if (cb) cb();
     }
 
     // Split on sentence ends (and colons) so each one can be spoken as its own
@@ -284,9 +306,10 @@
       return out.length ? out : [{ text, offset: 0 }];
     }
 
-    function speak(text, progressCb) {
+    function speak(text, progressCb, doneCb) {
       stop();
       onProgress = progressCb;
+      onDone = doneCb || null;
       boundarySeen = false;
       estimate = Math.max(2600, text.length * 55);   // rough Hebrew read-along pace
 
@@ -299,7 +322,7 @@
       qi = 0;
 
       const sayNext = () => {
-        if (qi >= queue.length) { if (onProgress) onProgress(1); return; }
+        if (qi >= queue.length) { if (onProgress) onProgress(1); finish(); return; }
         const part = queue[qi];
         try {
           const u = new SpeechSynthesisUtterance(part.text);
@@ -1237,7 +1260,7 @@
     }
   }
 
-  function renderNarration(text, epiLines) {
+  function renderNarration(text) {
     const host = $('bText');
     // vowel points need more room than bare letters or they turn to mush
     host.classList.toggle('pointed', isPointed(text));
@@ -1270,10 +1293,6 @@
     }
     if (last < text.length) line.appendChild(document.createTextNode(text.slice(last)));
     if (!line.childNodes.length) host.removeChild(line);
-    // the opening quotation is set apart from the mission it introduces
-    for (let n = 0; n < (epiLines || 0) && n < host.childNodes.length; n++) {
-      host.childNodes[n].classList.add('epi');
-    }
   }
 
   function narrationProgress(p) {
@@ -1313,17 +1332,27 @@
     // couple of floors and then stop repeating it every single briefing
     const hint = i >= 2 ? '' : ' הַחֵץ הַמֵהַבהֵב מַצבִּיעַ לֵשָׁם לֵאוֹרֶך כּוֹל הַקוֹמָה.';
     const lead = ' הַיַעַד שֶׁלךָ: ';
-    // the epigraph is read once, before the very first mission
-    const epi = i === 0 ? EPIGRAPH.say + ' ' : '';
-    return `${epi}${STORY[i].text}${lead}${goalTag(i)}.${hint}`;
+    return `${STORY[i].text}${lead}${goalTag(i)}.${hint}`;
   }
 
   function narrateMission() {
     const story = missionScript(S.level);
-    renderNarration(story, S.level === 0 ? EPIGRAPH.lines : 0);
+    renderNarration(story);
     narrationProgress(0);
     S.brief.tourBase = S.brief.t >= BRIEF_OPEN_MS ? 0 : -1;
-    Narrator.speak(story, narrationProgress);
+
+    const box = $('briefQuote');
+    // The game opens on one quotation, shown in its own box exactly like the
+    // one that closes a floor, and read before the first mission rather than
+    // glued onto the front of it.
+    if (S.level !== 0) { box.hidden = true; Narrator.speak(story, narrationProgress); return; }
+    box.hidden = false;
+    const epi = showQuote(box, EPIGRAPH);
+    Narrator.speak(epi.script, p => highlightWords(epi.words, epi.script.length, p),
+      () => {
+        highlightWords(epi.words, epi.script.length, 1);
+        Narrator.speak(story, narrationProgress);
+      });
   }
 
   function openBriefing(level, resetRun) {
@@ -1416,19 +1445,15 @@
       `<div>📈 ניקוד מצטבר: <b>${S.score}</b></div>`
     ].join('');
     const q = QUOTES[S.level % QUOTES.length];
-    $('clearQuote').innerHTML =
-      `<div class="q-text">״${q.t}״</div><div class="q-who">— ${q.who}, ${q.year}</div>`;
+    const quote = showQuote($('clearQuote'), q);
     $('btnNext').textContent = S.level >= FLOORS - 1 ? 'לסיום הקריירה' : 'לקומה הבאה';
     refreshStatus();
     setTimeout(() => {
       if (S.state !== 'clear') return;
       showScreen('clear');
-      // the quote is the punchline of the floor, so it is read out loud, with
-      // the words lighting up the way the mission's do
-      const el = $('clearQuote').querySelector('.q-text');
-      const said = `״${q.t}״`;
-      const words = splitWords(el, said);
-      Narrator.speak(said, p => highlightWords(words, said.length, p));
+      // the quote is the punchline of the floor, so it is read out loud —
+      // name and year included — with the words lighting up as they are said
+      Narrator.speak(quote.script, p => highlightWords(quote.words, quote.script.length, p));
     }, 900);
   }
 
@@ -2657,7 +2682,7 @@
   // Test seam: lets the headless smoke test validate all 100 floors without
   // having to duplicate the generator.
   window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS,
-                      state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES, reachableWithKeys, openBriefing, levelCleared,
+                      state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES, reachableWithKeys, openBriefing, levelCleared, EPIGRAPH,
                       stopNarration: Narrator.stop,
                       view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,
                       SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel };

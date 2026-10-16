@@ -307,6 +307,14 @@ button.main-btn.small { padding: 5px 14px; font-size: 12px; margin: 0; }
 .quote .w.said { color: #fff3cf; }
 .quote .w.now { color: #fff; font-weight: bold; text-shadow: 0 0 12px rgba(255, 204, 0, 0.95); }
 .quote .q-who { font-size: 11px; color: #9ab; margin-top: 4px; }
+/* the opening screen carries one quote and nothing else, so it gets the room */
+#openingScreen .quote { max-width: 620px; padding: 16px 22px; margin: 4px auto 16px; }
+#openingScreen .q-text { font-size: 19px; line-height: 1.6; }
+#openingScreen .q-who { font-size: 12.5px; margin-top: 8px; }
+@media (max-width: 760px) {
+  #openingScreen .quote { max-width: 92vw; padding: 12px 14px; }
+  #openingScreen .q-text { font-size: 16px; }
+}
 
 .name-form { margin-bottom: 6px; font-size: 11px; }
 .name-form[hidden] { display: none; }

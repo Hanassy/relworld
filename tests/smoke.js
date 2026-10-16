@@ -200,6 +200,20 @@ function serve() {
 
   /* ---- 2. play floor 1 from the menu to the clear screen ---- */
   await page.click('#btnNewCareer');
+  // a new career opens on its own screen, held until you choose to walk in
+  await page.waitForSelector('#openingScreen:not([hidden])');
+  const openingHeld = await page.evaluate(() => ({
+    title: document.querySelector('#openingScreen h1').textContent.trim(),
+    button: document.getElementById('btnEnterBuilding').textContent.trim(),
+    words: document.querySelectorAll('#openingQuote span.w').length,
+    credit: (document.querySelector('#openingQuote .q-who') || {}).textContent || '',
+    briefingWaits: document.getElementById('briefingScreen').hidden
+  }));
+  check('a new career opens on a screen of its own, with the quote and no briefing yet',
+    openingHeld.title.includes('התחלת קריירה חדשה') && openingHeld.button === 'היכנס לבניין' &&
+    openingHeld.words > 6 && openingHeld.credit.includes('1980') && openingHeld.briefingWaits,
+    JSON.stringify(openingHeld));
+  await page.click('#btnEnterBuilding');
   await page.waitForSelector('#briefingScreen:not([hidden])');
   await page.click('#btnGo');
   await page.keyboard.press('Space');
@@ -761,28 +775,32 @@ function serve() {
   check('the floor-clear quote is split into words and read along',
     readQuote.words > 3 && readQuote.later > readQuote.early, JSON.stringify(readQuote));
 
-  /* ---- 14. the opening quote is a quote, not a preamble to the mission ---- */
+  /* ---- 14. the opening quote belongs to the opening, not to the briefing ---- */
   const opening = await page.evaluate(async () => {
     const api = window.RelWorld;
     const bare = s => s.replace(/[\u0591-\u05C7]/g, '');
-    const out = {};
-    for (const lvl of [0, 1]) {
-      api.openBriefing(lvl, true);
-      await new Promise(r => setTimeout(r, 300));
-      const box = document.getElementById('briefQuote');
-      out[lvl] = {
-        shown: !box.hidden,
-        words: box.hidden ? 0 : box.querySelectorAll('span.w').length,
-        // the attribution sits in the box, and never inside the mission text
-        credits: box.hidden ? '' : (box.querySelector('.q-who') || {}).textContent || '',
-        inScript: bare(api.missionScript(lvl)).includes('מחשב על כול שולחן')
-      };
-    }
-    return out;
+    api.startCareer();
+    await new Promise(r => setTimeout(r, 300));
+    const shown = {
+      screen: !document.getElementById('openingScreen').hidden,
+      state: api.state.state,
+      read: document.querySelectorAll('#openingQuote .w.said, #openingQuote .w.now').length
+    };
+    document.getElementById('btnEnterBuilding').click();
+    await new Promise(r => setTimeout(r, 300));
+    return {
+      shown,
+      afterEnter: {
+        screen: !document.getElementById('openingScreen').hidden,
+        briefing: !document.getElementById('briefingScreen').hidden,
+        // the mission's own script never carries the epigraph
+        inScript: bare(api.missionScript(0)).includes('מחשב על כול שולחן')
+      }
+    };
   });
-  check('the opening quote is shown in a quote box on floor 1 only, not glued to the mission',
-    opening[0].shown && opening[0].words > 6 && opening[0].credits.includes('1980') &&
-    !opening[0].inScript && !opening[1].shown && !opening[1].inScript,
+  check('the opening screen holds the quote, reads it, and steps aside for the briefing',
+    opening.shown.screen && opening.shown.state === 'opening' && opening.shown.read > 0 &&
+    !opening.afterEnter.screen && opening.afterEnter.briefing && !opening.afterEnter.inScript,
     JSON.stringify(opening));
 
   // and both quotes say who said it, out loud

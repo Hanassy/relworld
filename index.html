@@ -72,6 +72,14 @@
     </div>
   </div>
 
+  <!-- ===== פתיחת קריירה: ציטוט אחד על מסך מלא, לפני התדריך הראשון ===== -->
+  <div id="openingScreen" class="overlayScreen" hidden>
+    <h1>🏢 התחלת קריירה חדשה</h1>
+    <div class="missionText">REL WORLD · 110 קומות</div>
+    <div id="openingQuote" class="quote"></div>
+    <button type="button" class="main-btn" id="btnEnterBuilding">היכנס לבניין</button>
+  </div>
+
   <!-- ===== תדריך קולנועי: המצלמה סוקרת את הקומה בזמן שהמשימה מוקראת ===== -->
   <div id="briefingScreen" class="overlayScreen cinematic" hidden>
     <div class="brief-top">
@@ -79,7 +87,6 @@
       <div class="missionText" id="bSubtitle">משבר ה-Velocity</div>
     </div>
     <div class="brief-bottom">
-      <div id="briefQuote" class="quote" hidden></div>
       <p id="bText" class="narration" aria-live="off"></p>
       <div id="bObjectives" class="objectives chips"></div>
       <div class="btn-row">

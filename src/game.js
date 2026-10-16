@@ -1025,7 +1025,7 @@
   const ctx = canvas.getContext('2d');
 
   const SCREENS = {
-    menu: $('startScreen'), briefing: $('briefingScreen'),
+    menu: $('startScreen'), opening: $('openingScreen'), briefing: $('briefingScreen'),
     clear: $('clearScreen'), paused: $('pauseScreen'), over: $('overScreen')
   };
 
@@ -1341,18 +1341,19 @@
     narrationProgress(0);
     S.brief.tourBase = S.brief.t >= BRIEF_OPEN_MS ? 0 : -1;
 
-    const box = $('briefQuote');
-    // The game opens on one quotation, shown in its own box exactly like the
-    // one that closes a floor, and read before the first mission rather than
-    // glued onto the front of it.
-    if (S.level !== 0) { box.hidden = true; Narrator.speak(story, narrationProgress); return; }
-    box.hidden = false;
-    const epi = showQuote(box, EPIGRAPH);
-    Narrator.speak(epi.script, p => highlightWords(epi.words, epi.script.length, p),
-      () => {
-        highlightWords(epi.words, epi.script.length, 1);
-        Narrator.speak(story, narrationProgress);
-      });
+    Narrator.speak(story, narrationProgress);
+  }
+
+  /* The career opens on one quotation, held on a screen of its own — the same
+     screen a floor ends on, so the line that starts the game lands with the
+     weight the ones that close a floor do. */
+  function startCareer() {
+    Audio.init();
+    Narrator.stop();
+    S.state = 'opening';
+    const epi = showQuote($('openingQuote'), EPIGRAPH);
+    showScreen('opening');
+    Narrator.speak(epi.script, p => highlightWords(epi.words, epi.script.length, p));
   }
 
   function openBriefing(level, resetRun) {
@@ -2556,7 +2557,8 @@
   }
 
   /* ======================= wiring ======================= */
-  $('btnNewCareer').addEventListener('click', () => openBriefing(0, true));
+  $('btnNewCareer').addEventListener('click', startCareer);
+  $('btnEnterBuilding').addEventListener('click', () => { Narrator.stop(); openBriefing(0, true); });
   $('btnContinue').addEventListener('click', () => openBriefing(unlockedLevel, true));
   $('btnGo').addEventListener('click', startLevel);
   $('btnBriefMenu').addEventListener('click', toMenu);
@@ -2683,6 +2685,7 @@
   // having to duplicate the generator.
   window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS,
                       state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES, reachableWithKeys, openBriefing, levelCleared, EPIGRAPH,
+                      startCareer,
                       stopNarration: Narrator.stop,
                       view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,
                       SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel };

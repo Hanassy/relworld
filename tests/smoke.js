@@ -17,7 +17,8 @@ const path = require('path');
 const { chromium } = require('playwright');
 
 const ROOT = path.join(__dirname, '..');
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
+                '.json': 'application/json', '.png': 'image/png' };
 
 const failures = [];
 const check = (name, ok, detail) => {
@@ -999,6 +1000,61 @@ function serve() {
   check('and the floor is zoomed out so more of it fits',
     onPhone.scale > 1.2 && onPhone.scale < 1.7, `scale ${onPhone.scale.toFixed(2)}`);
   await phone.close();
+
+  /* ---- 17. a returning player gets the build that is actually deployed ---- */
+  const freshness = await page.evaluate(async () => {
+    const api = window.RelWorld;
+    const tags = [...document.querySelectorAll('script[src], link[rel="stylesheet"]')]
+      .map(e => e.getAttribute('src') || e.getAttribute('href'))
+      .filter(u => u && u.startsWith('src/'));
+    const realFetch = window.fetch;
+    const nav = [];
+    const run = body => {
+      window.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(body) });
+      return api.checkForUpdate(u => nav.push(u));
+    };
+    try {
+      sessionStorage.removeItem('rel_update_try');
+      const same = await run({ build: api.BUILD });
+      const newer = await run({ build: 'ffffff9' });
+      const twice = await run({ build: 'ffffff9' });   // must not loop
+      sessionStorage.removeItem('rel_update_try');
+      return {
+        // every asset carries the marker CI rewrites to the commit
+        stamped: tags.length >= 4 && tags.every(u => /\?v=/.test(u)),
+        build: api.BUILD,
+        same, newer, twice, nav
+      };
+    } finally { window.fetch = realFetch; }
+  });
+  check('every asset URL carries a build marker, and the page knows its own build',
+    freshness.stamped && !!freshness.build, JSON.stringify({ stamped: freshness.stamped, build: freshness.build }));
+  check('a stale page reloads itself once onto the deployed build, and never loops',
+    freshness.same === 'current' && freshness.newer === 'reloading' &&
+    freshness.twice === 'already-tried' && freshness.nav.length === 1 &&
+    freshness.nav[0].includes('v=ffffff9'),
+    JSON.stringify({ same: freshness.same, newer: freshness.newer, twice: freshness.twice, nav: freshness.nav }));
+
+  // stripping the build marker must not take the campaign tags with it
+  const utmKept = await page.evaluate(async () => {
+    const w = window.open('index.html?v=abc1234&utm_source=linkedin&utm_content=post', '_blank');
+    await new Promise(r => setTimeout(r, 900));
+    const search = w.location.search;
+    w.close();
+    return search;
+  });
+  check('the build marker is stripped from the URL but the utm tags survive',
+    !/[?&]v=/.test(utmKept) && utmKept.includes('utm_source=linkedin') &&
+    utmKept.includes('utm_content=post'),
+    utmKept);
+
+  // and version.json has to actually be served, or the check above is moot
+  const vjson = await page.evaluate(async () => {
+    const r = await fetch('version.json', { cache: 'no-store' });
+    return { ok: r.ok, body: r.ok ? await r.json() : null };
+  });
+  check('version.json is served and names a build',
+    vjson.ok && !!(vjson.body || {}).build, JSON.stringify(vjson));
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

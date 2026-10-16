@@ -400,13 +400,13 @@ button.main-btn.small { padding: 5px 14px; font-size: 12px; margin: 0; }
 #touchControls .action-pad { pointer-events: auto; }
 /* they sit on the game now, so they have to stay readable over it */
 .touch-btn, .action-btn { backdrop-filter: blur(3px); }
-.dpad { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(2, 38px); gap: 3px; }
+.dpad { display: grid; grid-template-columns: repeat(3, 66px); grid-template-rows: repeat(2, 57px); gap: 4px; }
 .touch-btn, .action-btn {
   background: rgba(255, 255, 255, 0.12);
   border: 1px solid var(--line);
   color: #fff;
-  font-size: 15px;
-  border-radius: 8px;
+  font-size: 22px;
+  border-radius: 10px;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -417,17 +417,17 @@ button.main-btn.small { padding: 5px 14px; font-size: 12px; margin: 0; }
 }
 .touch-btn.active, .touch-btn:active { background: rgba(0, 255, 255, 0.3); transform: scale(0.92); }
 .action-btn {
-  width: 92px;
-  height: 64px;
+  width: 138px;
+  height: 96px;
   background: rgba(0, 204, 255, 0.2);
   border: 2px solid var(--cyan);
   color: var(--cyan);
   font-weight: bold;
-  font-size: 13px;
-  border-radius: 10px;
+  font-size: 19px;
+  border-radius: 14px;
   flex-direction: column;
 }
-.action-btn .hint { font-size: 8px; font-weight: normal; margin-top: 1px; }
+.action-btn .hint { font-size: 12px; font-weight: normal; margin-top: 2px; }
 .action-btn.active, .action-btn:active { background: rgba(0, 204, 255, 0.5); color: #000; transform: scale(0.92); }
 
 /* ---------- responsive ---------- */
@@ -449,8 +449,8 @@ body.no-touch #touchControls { display: none; }
   body { padding: 2px; }
   .brand, .select-label { display: none; }
   #ui { font-size: 10px; padding: 2px 6px; }
-  .dpad { grid-template-columns: repeat(3, 38px); grid-template-rows: repeat(2, 32px); }
-  .action-btn { width: 78px; height: 56px; }
+  .dpad { grid-template-columns: repeat(3, 57px); grid-template-rows: repeat(2, 48px); }
+  .action-btn { width: 117px; height: 84px; }
   /* the pad floats now; margin would only push it off the bottom edge */
   .overlayScreen h1 { font-size: 16px; margin-bottom: 1px; }
   .overlayScreen.cinematic .missionText { font-size: 11px; }

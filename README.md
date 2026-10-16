@@ -185,7 +185,7 @@ tests/smoke.js    בדיקות אוטומטיות בדפדפן אמיתי
 
 ```sh
 npm install --no-save playwright
-node tests/smoke.js        # 62 checks in a real browser
+node tests/smoke.js        # 66 checks in a real browser
 npx eslint src tests       # no build step, no config to write
 ```
 
@@ -272,12 +272,32 @@ npx eslint src tests       # no build step, no config to write
 
 ### איך זה עולה לאוויר
 
-`.github/workflows/ci.yml` מריץ על כל push את הליטינג, את בדיקת הניקוד ואת 62 הבדיקות בכרומיום, ורק אם `main` ירוק הוא מפרסם ל-GitHub Pages. אין build — זה
+`.github/workflows/ci.yml` מריץ על כל push את הליטינג, את בדיקת הניקוד ואת 66 הבדיקות בכרומיום, ורק אם `main` ירוק הוא מפרסם ל-GitHub Pages. אין build — זה
 HTML סטטי, אז ה"בנייה" היא העתקה.
 
 **צעד ידני אחד, פעם אחת, לפני שה-deploy יצליח:** Settings ← Pages ← Build and
 deployment ← Source: **GitHub Actions**. אי אפשר לעקוף את זה מתוך ה-workflow —
 ה-`GITHUB_TOKEN` אינו מורשה *ליצור* אתר Pages, רק לפרסם לאחד שכבר קיים.
+
+### גרסאות: למה מבקר חוזר לא נתקע על גרסה ישנה
+
+GitHub Pages מרשה לדפדפן לשמור את `index.html` במטמון, ודף שמור מושך את
+הסקריפטים השמורים שלו — כך שאפשר לדחוף גרסה חדשה ומישהו עדיין ישחק בישנה.
+
+שתי שכבות מטפלות בזה:
+
+1. **כתובות הנכסים נושאות את מספר הגרסה.** ב-`index.html` כתוב `src/game.js?v=dev`,
+   וה-CI מחליף את `dev` ב-SHA של הקומיט בזמן הפרסום. כתובת שמשתנה עם כל קומיט
+   לא יכולה להישלף מהמטמון.
+2. **דף ישן מזהה את עצמו.** בטעינה המשחק מבקש את `version.json` עם המטמון
+   עקוף, ואם ה-build שם שונה מזה שנטען — הוא טוען את עצמו מחדש דרך כתובת
+   שהדפדפן לא ראה. מוגן ב-`sessionStorage` כדי שלא ייכנס ללולאה.
+
+מספר הגרסה מוצג בתחתית מסך ההבהרה, כדי שאפשר לוודא מה חי כרגע.
+
+**שים לב:** זה נוגע ל*קוד* בלבד. ההתקדמות, השיאים וההגדרות יושבים ב-localStorage
+וממשיכים לחיות בין גרסאות — זה מכוון. למחיקה: כלי הפיתוח ← Application ←
+Local storage, או מצב גלישה פרטית.
 
 ### הקרדיט
 

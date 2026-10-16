@@ -64,6 +64,18 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      # Stamp the commit onto every asset URL. index.html may be cached by the
+      # browser, but a cached page then pulls cached scripts, so a deploy could
+      # go unseen; a URL that changes with the commit cannot be served stale,
+      # and version.json lets a page that IS stale notice and reload itself.
+      - name: Stamp the build id
+        run: |
+          SHA="${GITHUB_SHA::7}"
+          sed -i "s/?v=dev/?v=$SHA/g" index.html
+          printf '{"build":"%s"}\n' "$SHA" > version.json
+          grep -c "?v=$SHA" index.html
+          cat version.json
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

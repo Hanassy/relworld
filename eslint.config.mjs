@@ -4,6 +4,7 @@ const browser = [
   'window', 'document', 'navigator', 'localStorage', 'performance', 'console',
   'requestAnimationFrame', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
   'KeyboardEvent', 'SpeechSynthesisUtterance', 'ResizeObserver', 'CanvasRenderingContext2D',
+  'fetch', 'sessionStorage', 'history', 'URLSearchParams',
   'module'  // src/levels.js does a dual browser/node export
 ];
 const node = ['require', 'module', '__dirname', 'process', 'Promise'];

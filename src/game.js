@@ -1037,6 +1037,40 @@
      while a floor is being played. */
   const BRAND = (typeof window !== 'undefined' && window.REL_BRAND) || null;
 
+  /* Which build this is, read off this script's own URL so it cannot drift
+     from what the page actually loaded. CI rewrites ?v=dev to the commit. */
+  const BUILD = (function () {
+    try {
+      const m = /[?&]v=([^&]+)/.exec((document.currentScript || {}).src || '');
+      return m ? decodeURIComponent(m[1]) : 'dev';
+    } catch (e) { return 'dev'; }
+  })();
+
+  /* A player who opened the game last week should not still be playing last
+     week's build. GitHub Pages lets index.html be cached, and a cached page
+     pulls its cached scripts, so a stale copy can persist past a deploy. The
+     asset URLs carry the build id, which makes staleness *detectable*: ask
+     for version.json with the cache bypassed and compare. On a mismatch,
+     reload through a URL the browser has never seen, which is the only way
+     to be sure index.html itself is re-fetched. Guarded by sessionStorage so
+     a mismatch that somehow survives cannot loop. */
+  function checkForUpdate(navigate) {
+    const go = navigate || (u => window.location.replace(u));
+    if (!window.fetch || window.location.protocol === 'file:') return Promise.resolve('skipped');
+    return fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(info => {
+        if (!info || !info.build || info.build === BUILD) return 'current';
+        let tried = '';
+        try { tried = sessionStorage.getItem('rel_update_try') || ''; } catch (e) { /* ignore */ }
+        if (tried === info.build) return 'already-tried';
+        try { sessionStorage.setItem('rel_update_try', info.build); } catch (e) { /* ignore */ }
+        go(window.location.pathname + '?v=' + encodeURIComponent(info.build));
+        return 'reloading';
+      })
+      .catch(() => 'offline');     // opened from disk, or no network: play what we have
+  }
+
   function mark() {
     if (!BRAND) return '';
     return BRAND.logoImg
@@ -1047,6 +1081,7 @@
   function paintBrand() {
     if (!BRAND) return;
     $('legalShort').textContent = BRAND.disclaimerShort;
+    $('buildId').textContent = BUILD;
     $('legalText').textContent = BRAND.disclaimerFull;
     $('openingDisclaimer').textContent = BRAND.disclaimerShort;
     const line = where =>
@@ -2798,7 +2833,7 @@
   // having to duplicate the generator.
   window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS,
                       state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES, reachableWithKeys, openBriefing, levelCleared, EPIGRAPH,
-                      startCareer, shareGame, BRAND, track,
+                      startCareer, shareGame, BRAND, track, BUILD, checkForUpdate,
                       stopNarration: Narrator.stop,
                       view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,
                       SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel };
@@ -2812,6 +2847,22 @@
   });
 
   /* ======================= boot ======================= */
+  /* The ?v= marker has done its job once the page is loaded, so it comes back
+     out of the address bar — but only it. Dropping the whole query string
+     would take the utm_ tags with it, and analytics reads those after this
+     runs, so the visit would arrive with no idea where it came from. */
+  if (window.history && history.replaceState) {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      if (q.has('v')) {
+        q.delete('v');
+        const rest = q.toString();
+        history.replaceState(null, '',
+          window.location.pathname + (rest ? '?' + rest : '') + window.location.hash);
+      }
+    } catch (e) { /* ignore */ }
+  }
+  checkForUpdate();
   paintBrand();
   loadAnalytics();
   syncOptionButtons();

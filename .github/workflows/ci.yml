@@ -1,8 +1,11 @@
 # Tests on every push and pull request; publishes to GitHub Pages only when
 # main is green. The game is static, so "build" is just copying the repo.
 #
-# The deploy job turns Pages on by itself on its first run (enablement: true),
-# so there is nothing to switch on by hand.
+# ONE MANUAL STEP, once, before the first deploy can succeed:
+#   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions"
+# configure-pages can in principle switch this on itself with enablement: true,
+# but creating a Pages site is not something the default GITHUB_TOKEN is allowed
+# to do ("Resource not accessible by integration"), so it has to be a click.
 name: ci
 
 on:
@@ -61,11 +64,7 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      # enablement turns Pages on through the API on the first run, so the
-      # repository does not have to be configured by hand beforehand
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .

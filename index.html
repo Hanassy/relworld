@@ -167,6 +167,28 @@
     <p id="overCredit" class="credit end"></p>
   </div>
 
+  <div id="bottomPanelContainer" hidden>
+    <div class="bp-title">משימות הקומה:</div>
+    <div id="taskListBottom"></div>
+    <div id="timeDisplayBottom" class="timer">⏳ 0:00</div>
+  </div>
+  <div id="touchControls">
+    <div class="dpad">
+      <div></div>
+      <button type="button" class="touch-btn" data-dir="up" aria-label="למעלה">⬆️</button>
+      <div></div>
+      <button type="button" class="touch-btn" data-dir="left" aria-label="שמאלה">⬅️</button>
+      <button type="button" class="touch-btn" data-dir="down" aria-label="למטה">⬇️</button>
+      <button type="button" class="touch-btn" data-dir="right" aria-label="ימינה">➡️</button>
+    </div>
+    <div class="action-pad">
+      <button type="button" class="action-btn" id="btnAction">
+        <span>⚡ פעולה</span>
+        <span class="hint">כאפה / שדרוג</span>
+      </button>
+    </div>
+  </div>
+
   <!-- ===== HUD ===== -->
   <div id="missionHUD" hidden>
     <h3>משימות:</h3>
@@ -175,28 +197,7 @@
   </div>
 </div>
 
-<div id="bottomPanelContainer" hidden>
-  <div class="bp-title">משימות הקומה:</div>
-  <div id="taskListBottom"></div>
-  <div id="timeDisplayBottom" class="timer">⏳ 0:00</div>
-</div>
 
-<div id="touchControls">
-  <div class="dpad">
-    <div></div>
-    <button type="button" class="touch-btn" data-dir="up" aria-label="למעלה">⬆️</button>
-    <div></div>
-    <button type="button" class="touch-btn" data-dir="left" aria-label="שמאלה">⬅️</button>
-    <button type="button" class="touch-btn" data-dir="down" aria-label="למטה">⬇️</button>
-    <button type="button" class="touch-btn" data-dir="right" aria-label="ימינה">➡️</button>
-  </div>
-  <div class="action-pad">
-    <button type="button" class="action-btn" id="btnAction">
-      <span>⚡ פעולה</span>
-      <span class="hint">כאפה / שדרוג</span>
-    </button>
-  </div>
-</div>
 
 <noscript><p style="color:#f55">המשחק דורש JavaScript פעיל.</p></noscript>
 <script src="src/brand.js"></script>

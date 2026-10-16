@@ -355,16 +355,25 @@ button.main-btn.small { padding: 5px 14px; font-size: 12px; margin: 0; }
 @keyframes blink { 50% { opacity: 0.3; } }
 
 #bottomPanelContainer {
-  width: 100%;
-  flex: 0 0 auto;
-  margin: 3px auto 0;
-  background: rgba(0, 0, 0, 0.88);
+  /* Also floated, and pinned to the top-RIGHT: the minimap is drawn into the
+     canvas at the top-left and the thumbs own the bottom, so this corner is
+     the only one going spare. */
+  position: absolute;
+  top: 4px;
+  /* physical right, not inset-inline-end: the page is dir="rtl", so the
+     logical end is the LEFT edge — which is where the minimap is drawn */
+  right: 4px;
+  left: auto;
+  max-width: 58%;
+  background: rgba(0, 0, 0, 0.72);
   border: 1px solid var(--cyan);
   border-radius: 5px;
-  padding: 4px 8px;
+  padding: 3px 7px;
   text-align: right;
   color: #fff;
   font-size: 10px;
+  pointer-events: none;
+  z-index: 3;
 }
 .bp-title { color: var(--gold); font-weight: bold; border-bottom: 1px solid #444; margin-bottom: 2px; padding-bottom: 1px; }
 
@@ -375,12 +384,22 @@ button.main-btn.small { padding: 5px 14px; font-size: 12px; margin: 0; }
   direction: ltr;
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  width: 100%;
-  flex: 0 0 auto;
-  margin: 6px auto 0;
-  padding: 0 4px env(safe-area-inset-bottom, 4px);
+  align-items: flex-end;
+  /* Floated over the floor rather than parked under it. As a strip of its own
+     it was taking 79px off a 844px phone, and the task panel another 80 — the
+     game was being played in 69% of the screen. */
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  padding: 0 6px calc(6px + env(safe-area-inset-bottom, 0px));
+  /* only the buttons catch the finger; the gap between them is still floor */
+  pointer-events: none;
+  z-index: 3;
 }
+#touchControls .dpad,
+#touchControls .action-pad { pointer-events: auto; }
+/* they sit on the game now, so they have to stay readable over it */
+.touch-btn, .action-btn { backdrop-filter: blur(3px); }
 .dpad { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(2, 38px); gap: 3px; }
 .touch-btn, .action-btn {
   background: rgba(255, 255, 255, 0.12);
@@ -432,7 +451,7 @@ body.no-touch #touchControls { display: none; }
   #ui { font-size: 10px; padding: 2px 6px; }
   .dpad { grid-template-columns: repeat(3, 38px); grid-template-rows: repeat(2, 32px); }
   .action-btn { width: 78px; height: 56px; }
-  #touchControls { margin-top: 3px; }
+  /* the pad floats now; margin would only push it off the bottom edge */
   .overlayScreen h1 { font-size: 16px; margin-bottom: 1px; }
   .overlayScreen.cinematic .missionText { font-size: 11px; }
   .narration { font-size: 12px; line-height: 1.4; min-height: 0; }

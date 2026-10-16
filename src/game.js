@@ -23,6 +23,7 @@
   // The logical viewport tracks the canvas box, so the view fills whatever
   // shape the screen is instead of being letterboxed into a fixed 5:3 window.
   let VIEW_W = 1000, VIEW_H = 600;
+  let smallScreen = false;
   let cx0 = VIEW_W / 2, cy0 = VIEW_H / 2;
   const MOVE_MS = 115;                      // grid step cadence while a key is held
   const COMBO_MS = 2600;                    // window to keep a combo alive
@@ -1857,7 +1858,7 @@
       const k = clamp(S.introT / INTRO_DUR, 0, 1);
       const e = smooth(k);
       const from = S.introFrom;
-      const target = inRoom(p.x, p.y) ? 2.3 : 1.25;
+      const target = (inRoom(p.x, p.y) ? 2.3 : 1.25) / (smallScreen ? 1.5 : 1);
       S.scale = from.scale + e * (target - from.scale);
       S.camX = from.x + e * (pcx - from.x);
       S.camY = from.y + e * (pcy - from.y);
@@ -1876,7 +1877,7 @@
 
     // playing / paused / clear / over: frame-rate independent easing
     const ease = 1 - Math.pow(0.85, dt / 16.67);
-    const target = inRoom(p.x, p.y) ? 2.2 : 1.2;
+    const target = (inRoom(p.x, p.y) ? 2.2 : 1.2) / (smallScreen ? 1.5 : 1);
     S.scale += (target - S.scale) * ease;
     S.camX += (pcx - S.camX) * ease;
     S.camY += (pcy - S.camY) * ease;
@@ -2175,7 +2176,9 @@
 
   function drawMinimap() {
     if (!S.map) return;
-    const s = 7, pad = 8, w = MAP_W * s, h = MAP_H * s;
+    // half scale on a phone: at 7px a tile it was eating the top of the screen
+    const s = smallScreen ? 3.5 : 7, pad = smallScreen ? 5 : 8;
+    const w = MAP_W * s, h = MAP_H * s;
     ctx.save();
     ctx.globalAlpha = 0.9;
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
@@ -2707,6 +2710,11 @@
     cx0 = VIEW_W / 2;
     cy0 = VIEW_H / 2;
     sideBrief = VIEW_W >= 900 && VIEW_W / VIEW_H >= 1.25;
+    /* A phone, judged by how much room the game actually has rather than by
+       the user agent, so a narrow desktop window gets the same treatment.
+       Measured on the SHORTER side: a phone held sideways is 844 wide and 390
+       tall, and keying on width alone left it as cramped as before. */
+    smallScreen = Math.min(VIEW_W, VIEW_H) < 520;
     document.body.classList.toggle('wide-brief', sideBrief);
     // cap the backing store so a huge window does not cost 4x the fill rate
     let dpr = Math.min(window.devicePixelRatio || 1, 2);

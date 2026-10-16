@@ -185,7 +185,7 @@ tests/smoke.js    בדיקות אוטומטיות בדפדפן אמיתי
 
 ```sh
 npm install --no-save playwright
-node tests/smoke.js        # 60 checks in a real browser
+node tests/smoke.js        # 62 checks in a real browser
 npx eslint src tests       # no build step, no config to write
 ```
 
@@ -272,7 +272,7 @@ npx eslint src tests       # no build step, no config to write
 
 ### איך זה עולה לאוויר
 
-`.github/workflows/ci.yml` מריץ על כל push את הליטינג, את בדיקת הניקוד ואת 60 הבדיקות בכרומיום, ורק אם `main` ירוק הוא מפרסם ל-GitHub Pages. אין build — זה
+`.github/workflows/ci.yml` מריץ על כל push את הליטינג, את בדיקת הניקוד ואת 62 הבדיקות בכרומיום, ורק אם `main` ירוק הוא מפרסם ל-GitHub Pages. אין build — זה
 HTML סטטי, אז ה"בנייה" היא העתקה.
 
 **צעד ידני אחד, פעם אחת, לפני שה-deploy יצליח:** Settings ← Pages ← Build and

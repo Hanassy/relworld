@@ -959,6 +959,47 @@ function serve() {
     wired.floor && wired.floor.floor === 3 && !wired.leaks,
     JSON.stringify(wired));
 
+  /* ---- 16. a phone gives the screen to the game, not to the chrome ---- */
+  // its own page: the suite's is a desktop viewport, and a pointer-only device
+  // hides the pad entirely, so the phone layout has to be exercised on a phone
+  const phone = await browser.newPage({
+    viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true
+  });
+  await phone.goto(base + '/index.html');
+  await phone.waitForFunction(() => !!window.RelWorld);
+  const onPhone = await phone.evaluate(async () => {
+    const api = window.RelWorld;
+    api.openBriefing(5, true);
+    document.getElementById('btnGo').click();
+    for (let i = 0; i < 60 && api.state.state !== 'playing'; i++) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    await new Promise(r => setTimeout(r, 400));
+    const box = id => {
+      const el = document.getElementById(id);
+      return el && el.offsetParent !== null ? el.getBoundingClientRect() : null;
+    };
+    const c = box('gameCanvas'), pad = box('touchControls'), panel = box('bottomPanelContainer');
+    const over = (a, b) => !!a && !!b && a.top < b.bottom && b.top < a.bottom;
+    return {
+      share: c ? c.height / window.innerHeight : 0,
+      scale: api.state.scale,
+      // both strips have to be ON the canvas, not stacked under it
+      padOnCanvas: over(pad, c) && !!pad && pad.bottom <= c.bottom + 1,
+      panelOnCanvas: over(panel, c),
+      // and the task panel must not be sitting on the minimap, which the
+      // canvas draws into its own top-LEFT corner
+      panelClearsMinimap: !!panel && !!c && panel.left > c.left + 140
+    };
+  });
+  check('on a phone the canvas gets the screen and the controls float on it',
+    onPhone.share > 0.85 && onPhone.padOnCanvas && onPhone.panelOnCanvas &&
+    onPhone.panelClearsMinimap,
+    JSON.stringify({ ...onPhone, share: +onPhone.share.toFixed(2) }));
+  check('and the floor is zoomed out so more of it fits',
+    onPhone.scale > 1.2 && onPhone.scale < 1.7, `scale ${onPhone.scale.toFixed(2)}`);
+  await phone.close();
+
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await browser.close();

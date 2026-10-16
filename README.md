@@ -1,5 +1,9 @@
 # REL WORLD — A CEO QUEST FOR GLORY
 
+[![ci](https://github.com/Hanassy/relworld/actions/workflows/ci.yml/badge.svg)](https://github.com/Hanassy/relworld/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-ffc400)](LICENSE)
+[![play](https://img.shields.io/badge/%F0%9F%8E%AE-%D7%9C%D7%A9%D7%97%D7%A7-00e5ff)](https://hanassy.github.io/relworld/)
+
 משחק סאטירה איזומטרי על הדרך למנכ"לות: 110 קומות של היי-טק, צ'אפחות האצה,
 חומרה מכל תקופה, מנהלים מקבילים ודלתות שאף אחד לא יודע מי נעל.
 הכל רץ בדפדפן, בלי שרת, בלי build ובלי ספריות חיצוניות.

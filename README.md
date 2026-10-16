@@ -185,7 +185,7 @@ tests/smoke.js    בדיקות אוטומטיות בדפדפן אמיתי
 
 ```sh
 npm install --no-save playwright
-node tests/smoke.js        # 59 checks in a real browser
+node tests/smoke.js        # 60 checks in a real browser
 npx eslint src tests       # no build step, no config to write
 ```
 
@@ -272,7 +272,7 @@ npx eslint src tests       # no build step, no config to write
 
 ### איך זה עולה לאוויר
 
-`.github/workflows/ci.yml` מריץ על כל push את הליטינג, את בדיקת הניקוד ואת 59 הבדיקות בכרומיום, ורק אם `main` ירוק הוא מפרסם ל-GitHub Pages. אין build — זה
+`.github/workflows/ci.yml` מריץ על כל push את הליטינג, את בדיקת הניקוד ואת 60 הבדיקות בכרומיום, ורק אם `main` ירוק הוא מפרסם ל-GitHub Pages. אין build — זה
 HTML סטטי, אז ה"בנייה" היא העתקה.
 
 **צעד ידני אחד, פעם אחת, לפני שה-deploy יצליח:** Settings ← Pages ← Build and
@@ -306,7 +306,19 @@ node tools/share-image.js
 **כבוי כברירת מחדל ולא שולח כלום לאף אחד.** בדיקות מוודאות גם שלא נטען סקריפט
 צד-שלישי, וגם שאף מונה לא יורה — כל עוד `analytics.src` ריק.
 
-להדלקה: ממלאים שדה אחד ב-[`src/brand.js`](src/brand.js). למשל Umami Cloud —
+להדלקה: ממלאים שדה אחד ב-[`src/brand.js`](src/brand.js).
+
+**Google Analytics 4** — מדביקים את ה-Measurement ID מה-data stream:
+
+```js
+analytics: { ga4: 'G-XXXXXXXXXX', cookieless: true, events: true }
+```
+
+`cookieless: true` מפעיל Consent Mode עם `analytics_storage: 'denied'` — מודדים
+בלי קוקיז, בלי באנר הסכמה, במחיר של אי-זיהוי מבקר חוזר כאותו אדם.
+
+**כל השאר** (Plausible, Umami, GoatCounter, Cloudflare) — URL של סקריפט ומאפייני
+`data-`:
 
 ```js
 analytics: {
@@ -316,8 +328,8 @@ analytics: {
 }
 ```
 
-Cloudflare Web Analytics, Plausible ו-GoatCounter עובדים באותו אופן (URL של
-סקריפט + מאפייני `data-`), ו-`track()` מזהה לבד מי מהם נטען.
+`track()` מזהה לבד מי מהספקים נטען. ב-GA4 שמות האירועים נשלחים עם קו תחתון
+(`career_start`), כי גוגל דוחה מקף.
 
 **מה נספר** (אין בזה שום מידע אישי):
 
@@ -329,9 +341,14 @@ Cloudflare Web Analytics, Plausible ו-GoatCounter עובדים באותו או�
 | `share` | האם מישהו לחץ שתף |
 | `credit-click` | כמה עברו לאתר, ומאיזה מסך |
 
-**הערה על הבחירה:** Cloudflare Web Analytics חינמי ובלי הגבלה, אבל **לא מקבל
-אירועים מותאמים** — תקבל צפיות בלבד. אם עקומת הנטישה מעניינת אותך (וזה הנתון
-השימושי באמת), קח Umami או Plausible. לא צריך באנר קוקיז לאף אחד מהם.
+**ב-GA4 יש מלכודת:** פרמטרים של אירועים (כמו מספר הקומה ב-`floor_cleared`)
+נאספים אבל **לא מופיעים בדוחות** עד שרושמים אותם כ-Custom dimension:
+Admin ← Custom definitions ← Create custom dimension ← Event-scoped ← parameter
+`floor`. בלי זה תראה כמה קומות נוקו, אבל לא אילו.
+
+**הערה על הבחירה:** Cloudflare Web Analytics חינמי ובלי הגבלה אבל לא מקבל
+אירועים מותאמים. GA4 מקבל, אבל חוסמי פרסומות מסננים אותו — מול קהל מפתחים זה
+חיתוך משמעותי במספרים. Umami ו-Plausible עוברים את החוסמים ולא צריכים באנר.
 
 ### הבהרה
 

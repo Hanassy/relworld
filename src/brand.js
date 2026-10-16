@@ -39,7 +39,21 @@
        of them, and they are silent unless a provider is actually loaded.
        Cloudflare's free tier does not take custom events — pick Umami or
        Plausible if the drop-off curve is what you are after. */
-    analytics: { src: '', attrs: {}, events: true }
+    analytics: {
+      /* Google Analytics 4: paste the Measurement ID from the web data stream,
+         the one shaped G-XXXXXXXXXX. That is all GA needs. */
+      ga4: '',
+      /* GA without cookies. Measurement still works and no consent banner is
+         needed, at the cost of not recognising a returning player as the same
+         person — every visit counts as new. Worth it for a game. */
+      cookieless: true,
+
+      /* Or any script-tag provider instead (Plausible, Umami, GoatCounter,
+         Cloudflare): a URL plus its data- attributes. */
+      src: '', attrs: {},
+
+      events: true
+    }
   };
 
   /** The brand URL with the campaign tag, so clicks are attributable. */

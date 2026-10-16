@@ -891,7 +891,7 @@ function serve() {
 
   // nothing is sent anywhere unless analytics has actually been configured
   const quiet = await page.evaluate(() => ({
-    configured: !!window.RelWorld.BRAND.analytics.src,
+    configured: !!(window.RelWorld.BRAND.analytics.src || window.RelWorld.BRAND.analytics.ga4),
     scripts: [...document.querySelectorAll('script[src]')].map(s => s.getAttribute('src'))
   }));
   check('no third-party script loads while analytics is unconfigured',
@@ -938,6 +938,22 @@ function serve() {
       leaks: /@|utm_|http|[0-9]{1,3}(\.[0-9]{1,3}){3}/.test(blob)
     };
   });
+  // GA4 is the odd one out: it needs gtag, and it rejects hyphens in a name
+  const ga = await page.evaluate(async () => {
+    const api = window.RelWorld, seen = [];
+    api.BRAND.analytics.ga4 = 'G-TESTONLY00';
+    window.gtag = (...args) => seen.push(args);
+    api.track('career-start');
+    api.track('floor-cleared', { floor: 7 });
+    api.BRAND.analytics.ga4 = '';
+    delete window.gtag;
+    return seen;
+  });
+  check('GA4 events go out under names GA will actually accept',
+    ga.length === 2 && ga[0][1] === 'career_start' && ga[1][1] === 'floor_cleared' &&
+    ga[1][2].floor === 7 && ga.every(e => /^[A-Za-z][A-Za-z0-9_]*$/.test(e[1])),
+    JSON.stringify(ga));
+
   check('once a provider is configured the counts go out, carrying no personal data',
     wired.names.includes('career-start') && wired.names.includes('floor-cleared') &&
     wired.floor && wired.floor.floor === 3 && !wired.leaks,

@@ -1087,9 +1087,13 @@
       must never be able to break the game, hence the catch. */
   function track(name, props) {
     const a = BRAND && BRAND.analytics;
-    if (!a || !a.src || a.events === false) return;
+    if (!a || (!a.src && !a.ga4) || a.events === false) return;
     try {
-      if (typeof window.plausible === 'function') {
+      if (typeof window.gtag === 'function') {
+        // GA4 only accepts letters, digits and underscores in an event name,
+        // so career-start has to go out as career_start or it is dropped
+        window.gtag('event', name.replace(/-/g, '_'), props || {});
+      } else if (typeof window.plausible === 'function') {
         window.plausible(name, props ? { props } : undefined);
       } else if (window.umami && typeof window.umami.track === 'function') {
         window.umami.track(name, props);
@@ -1099,10 +1103,27 @@
     } catch (e) { /* never let a counter take the game down */ }
   }
 
-  /** Loads a cookie-free analytics script, but only if one is configured. */
+  /** Boots Google Analytics 4, which needs more than a script tag: the global
+      queue and the config call have to exist before any event is sent. */
+  function loadGa4(id, cookieless) {
+    const el = document.createElement('script');
+    el.async = true;
+    el.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(id);
+    document.head.appendChild(el);
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function () { window.dataLayer.push(arguments); };
+    // consent has to be declared before the config call, not after
+    if (cookieless) window.gtag('consent', 'default', { analytics_storage: 'denied' });
+    window.gtag('js', new Date());
+    window.gtag('config', id);
+  }
+
+  /** Loads whichever analytics provider is configured, and none if none is. */
   function loadAnalytics() {
     const a = BRAND && BRAND.analytics;
-    if (!a || !a.src) return;
+    if (!a) return;
+    if (a.ga4) { loadGa4(a.ga4, a.cookieless !== false); return; }
+    if (!a.src) return;
     const el = document.createElement('script');
     el.defer = true;
     el.src = a.src;

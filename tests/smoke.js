@@ -898,6 +898,51 @@ function serve() {
     !quiet.configured && quiet.scripts.every(src => src.startsWith('src/')),
     JSON.stringify(quiet.scripts));
 
+  // and the counters stay silent too, even though the call sites are wired
+  const silent = await page.evaluate(async () => {
+    const api = window.RelWorld, seen = [];
+    // stand in for each provider: if track() reaches one, it is not inert
+    window.plausible = (n, o) => seen.push(['plausible', n, o]);
+    window.umami = { track: (n, p) => seen.push(['umami', n, p]) };
+    window.goatcounter = { count: o => seen.push(['goatcounter', o]) };
+    api.startCareer();
+    api.track('probe', { a: 1 });
+    await new Promise(r => setTimeout(r, 150));
+    delete window.plausible; delete window.umami; delete window.goatcounter;
+    return seen;
+  });
+  check('with no provider configured, not one event is reported',
+    silent.length === 0, JSON.stringify(silent).slice(0, 120));
+
+  // and once one is configured, the counts actually go out — with no personal data
+  const wired = await page.evaluate(async () => {
+    const api = window.RelWorld, seen = [];
+    api.BRAND.analytics.src = 'https://example.invalid/a.js';   // test-only
+    window.plausible = (n, o) => seen.push({ name: n, props: (o || {}).props });
+    api.startCareer();
+    api.openBriefing(2, true);
+    document.getElementById('btnGo').click();
+    await new Promise(r => setTimeout(r, 400));
+    const s = api.state;
+    s.slaps = s.floor.desks; s.partsGiven = s.floor.desks; s.coinsGot = s.floor.coinQuota;
+    s.chadSlapped = true;
+    api.levelCleared();
+    await new Promise(r => setTimeout(r, 150));
+    api.BRAND.analytics.src = '';
+    delete window.plausible;
+    const blob = JSON.stringify(seen);
+    return {
+      names: seen.map(e => e.name),
+      floor: (seen.find(e => e.name === 'floor-cleared') || {}).props,
+      // nothing that could identify a player may ride along
+      leaks: /@|utm_|http|[0-9]{1,3}(\.[0-9]{1,3}){3}/.test(blob)
+    };
+  });
+  check('once a provider is configured the counts go out, carrying no personal data',
+    wired.names.includes('career-start') && wired.names.includes('floor-cleared') &&
+    wired.floor && wired.floor.floor === 3 && !wired.leaks,
+    JSON.stringify(wired));
+
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await browser.close();

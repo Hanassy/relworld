@@ -185,7 +185,7 @@ tests/smoke.js    בדיקות אוטומטיות בדפדפן אמיתי
 
 ```sh
 npm install --no-save playwright
-node tests/smoke.js        # 57 checks in a real browser
+node tests/smoke.js        # 59 checks in a real browser
 npx eslint src tests       # no build step, no config to write
 ```
 
@@ -272,7 +272,7 @@ npx eslint src tests       # no build step, no config to write
 
 ### איך זה עולה לאוויר
 
-`.github/workflows/ci.yml` מריץ על כל push את הליטינג, את בדיקת הניקוד ואת 57 הבדיקות בכרומיום, ורק אם `main` ירוק הוא מפרסם ל-GitHub Pages. אין build — זה
+`.github/workflows/ci.yml` מריץ על כל push את הליטינג, את בדיקת הניקוד ואת 59 הבדיקות בכרומיום, ורק אם `main` ירוק הוא מפרסם ל-GitHub Pages. אין build — זה
 HTML סטטי, אז ה"בנייה" היא העתקה.
 
 **צעד ידני אחד, פעם אחת, לפני שה-deploy יצליח:** Settings ← Pages ← Build and
@@ -303,9 +303,35 @@ node tools/share-image.js
 
 ### אנליטיקס
 
-כבוי כברירת מחדל ולא שולח כלום לאף אחד. למילוי: `analytics.src` ב-`src/brand.js`
-(Cloudflare Web Analytics, Plausible או Umami — כולם עובדים כך). בדיקה מוודאת
-שכל עוד זה ריק, לא נטען שום סקריפט צד-שלישי.
+**כבוי כברירת מחדל ולא שולח כלום לאף אחד.** בדיקות מוודאות גם שלא נטען סקריפט
+צד-שלישי, וגם שאף מונה לא יורה — כל עוד `analytics.src` ריק.
+
+להדלקה: ממלאים שדה אחד ב-[`src/brand.js`](src/brand.js). למשל Umami Cloud —
+
+```js
+analytics: {
+  src: 'https://cloud.umami.is/script.js',
+  attrs: { 'data-website-id': 'ה-id-שלך' },
+  events: true
+}
+```
+
+Cloudflare Web Analytics, Plausible ו-GoatCounter עובדים באותו אופן (URL של
+סקריפט + מאפייני `data-`), ו-`track()` מזהה לבד מי מהם נטען.
+
+**מה נספר** (אין בזה שום מידע אישי):
+
+| אירוע | מה זה עונה |
+|---|---|
+| `career-start` | כמה באמת התחילו לשחק, ולא רק נחתו בתפריט |
+| `floor-cleared` + מספר קומה | **עקומת הנטישה** — עד איפה אנשים מגיעים |
+| `career-end` + קומה, ניצחון | כמה פוטרו, כמה הגיעו למנכ"לות |
+| `share` | האם מישהו לחץ שתף |
+| `credit-click` | כמה עברו לאתר, ומאיזה מסך |
+
+**הערה על הבחירה:** Cloudflare Web Analytics חינמי ובלי הגבלה, אבל **לא מקבל
+אירועים מותאמים** — תקבל צפיות בלבד. אם עקומת הנטישה מעניינת אותך (וזה הנתון
+השימושי באמת), קח Umami או Plausible. לא צריך באנר קוקיז לאף אחד מהם.
 
 ### הבהרה
 

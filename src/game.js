@@ -1053,11 +1053,18 @@
       `${BRAND.name}</a> · ${BRAND.tagline}`;
     $('menuCredit').innerHTML = line('menu');
     $('overCredit').innerHTML = line('career-end');
+    // the click is also visible at the other end through the UTM tag; counting
+    // it here as well shows the click-through rate without leaving the site
+    for (const id of ['menuCredit', 'overCredit']) {
+      const a = $(id).querySelector('a');
+      if (a) a.addEventListener('click', () => track('credit-click', { from: id }));
+    }
   }
 
   /** Hands the link to someone else: the share sheet on a phone, the
       clipboard everywhere else. Nothing here reports back to anyone. */
   async function shareGame(btn) {
+    track('share');
     const url = (BRAND && BRAND.shareUrl) || window.location.href;
     const text = `REL WORLD — משחק סאטירה על הדרך למנכ"לות. ${FLOORS} קומות, כל אחת מבוססת על סיפור אמיתי.`;
     try {
@@ -1072,6 +1079,24 @@
     const was = btn.textContent;
     btn.textContent = msg;
     setTimeout(() => { btn.textContent = was; }, 2200);
+  }
+
+  /** Reports one count, if and only if a provider is actually loaded. Written
+      against whichever of the three is present rather than against one vendor,
+      so swapping providers is a line in brand.js and nothing else. Analytics
+      must never be able to break the game, hence the catch. */
+  function track(name, props) {
+    const a = BRAND && BRAND.analytics;
+    if (!a || !a.src || a.events === false) return;
+    try {
+      if (typeof window.plausible === 'function') {
+        window.plausible(name, props ? { props } : undefined);
+      } else if (window.umami && typeof window.umami.track === 'function') {
+        window.umami.track(name, props);
+      } else if (window.goatcounter && typeof window.goatcounter.count === 'function') {
+        window.goatcounter.count({ path: 'event/' + name, title: name, event: true });
+      }
+    } catch (e) { /* never let a counter take the game down */ }
   }
 
   /** Loads a cookie-free analytics script, but only if one is configured. */
@@ -1409,6 +1434,7 @@
     S.state = 'opening';
     const epi = showQuote($('openingQuote'), EPIGRAPH);
     showScreen('opening');
+    track('career-start');
     Narrator.speak(epi.script, p => highlightWords(epi.words, epi.script.length, p));
   }
 
@@ -1502,6 +1528,7 @@
       `<div>📈 ניקוד מצטבר: <b>${S.score}</b></div>`
     ].join('');
     const q = QUOTES[S.level % QUOTES.length];
+    track('floor-cleared', { floor: S.level + 1 });
     const quote = showQuote($('clearQuote'), q);
     $('btnNext').textContent = S.level >= FLOORS - 1 ? 'לסיום הקריירה' : 'לקומה הבאה';
     refreshStatus();
@@ -1521,6 +1548,7 @@
     if (victory) Audio.win(); else Audio.fired();
     if (S.score > bestScore) { bestScore = S.score; store.set('rel_best', bestScore); }
 
+    track('career-end', { floor: S.level + 1, victory: victory ? 'yes' : 'no' });
     $('overTitle').textContent = victory ? '👑 הגעת למנכ"לות' : '📉 פוטרת';
     $('overReason').textContent = reason;
     $('overStats').innerHTML = [
@@ -2741,7 +2769,7 @@
   // having to duplicate the generator.
   window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS,
                       state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES, reachableWithKeys, openBriefing, levelCleared, EPIGRAPH,
-                      startCareer, shareGame, BRAND,
+                      startCareer, shareGame, BRAND, track,
                       stopNarration: Narrator.stop,
                       view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,
                       SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel };

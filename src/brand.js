@@ -30,8 +30,16 @@
     /* Cookie-free analytics, inert until configured. Fill in a script URL and
        its data- attributes (Cloudflare Web Analytics, Plausible, Umami — they
        all work this way) and it loads; leave src empty and nothing is sent
-       anywhere, which is the default. */
-    analytics: { src: '', attrs: {} }
+       anywhere, which is the default.
+
+       `events` additionally reports a handful of counts — a career started, a
+       floor cleared and which one, how far a career got, a share, a click on
+       the credit. That is what answers "did the post work and did anyone play
+       past floor three"; plain page views cannot. No personal data is in any
+       of them, and they are silent unless a provider is actually loaded.
+       Cloudflare's free tier does not take custom events — pick Umami or
+       Plausible if the drop-off curve is what you are after. */
+    analytics: { src: '', attrs: {}, events: true }
   };
 
   /** The brand URL with the campaign tag, so clicks are attributable. */

@@ -1,0 +1,66 @@
+# Tests on every push and pull request; publishes to GitHub Pages only when
+# main is green. The game is static, so "build" is just copying the repo.
+#
+# One manual step before the first deploy succeeds:
+#   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions"
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# only the newest run of a branch matters; cancel the ones it overtook
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # no package.json on purpose: the game has no dependencies at all, and
+      # the two dev tools are installed here rather than vendored into it
+      - name: Install dev tooling
+        run: npm install --no-save playwright eslint
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Lint
+        run: npx eslint .
+
+      - name: Every mission is vocalised
+        run: node tools/vocalize.js --check
+
+      - name: Smoke test the real game in a browser
+        run: node tests/smoke.js
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deploy
+        uses: actions/deploy-pages@v4

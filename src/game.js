@@ -1026,8 +1026,64 @@
 
   const SCREENS = {
     menu: $('startScreen'), opening: $('openingScreen'), briefing: $('briefingScreen'),
-    clear: $('clearScreen'), paused: $('pauseScreen'), over: $('overScreen')
+    clear: $('clearScreen'), paused: $('pauseScreen'), over: $('overScreen'),
+    legal: $('legalScreen')
   };
+
+  /* ======================= credit, sharing, notice =======================
+     Who made this, where to read the satire notice, and how to hand the link
+     to someone else. All of it reads from src/brand.js and none of it appears
+     while a floor is being played. */
+  const BRAND = (typeof window !== 'undefined' && window.REL_BRAND) || null;
+
+  function mark() {
+    if (!BRAND) return '';
+    return BRAND.logoImg
+      ? `<img class="brand-logo" src="${BRAND.logoImg}" alt="" width="16" height="16">`
+      : `<span class="brand-logo">${BRAND.logo}</span>`;
+  }
+
+  function paintBrand() {
+    if (!BRAND) return;
+    $('legalShort').textContent = BRAND.disclaimerShort;
+    $('legalText').textContent = BRAND.disclaimerFull;
+    $('openingDisclaimer').textContent = BRAND.disclaimerShort;
+    const line = where =>
+      `${mark()} נבנה על ידי <a href="${BRAND.link(where)}" target="_blank" rel="noopener">` +
+      `${BRAND.name}</a> · ${BRAND.tagline}`;
+    $('menuCredit').innerHTML = line('menu');
+    $('overCredit').innerHTML = line('career-end');
+  }
+
+  /** Hands the link to someone else: the share sheet on a phone, the
+      clipboard everywhere else. Nothing here reports back to anyone. */
+  async function shareGame(btn) {
+    const url = (BRAND && BRAND.shareUrl) || window.location.href;
+    const text = `REL WORLD — משחק סאטירה על הדרך למנכ"לות. ${FLOORS} קומות, כל אחת מבוססת על סיפור אמיתי.`;
+    try {
+      if (navigator.share) { await navigator.share({ title: 'REL WORLD', text, url }); return; }
+      await navigator.clipboard.writeText(`${text}\n${url}`);
+      flashButton(btn, '✅ הקישור הועתק');
+    } catch (e) { flashButton(btn, '🔗 ' + url); }
+  }
+
+  function flashButton(btn, msg) {
+    if (!btn) return;
+    const was = btn.textContent;
+    btn.textContent = msg;
+    setTimeout(() => { btn.textContent = was; }, 2200);
+  }
+
+  /** Loads a cookie-free analytics script, but only if one is configured. */
+  function loadAnalytics() {
+    const a = BRAND && BRAND.analytics;
+    if (!a || !a.src) return;
+    const el = document.createElement('script');
+    el.defer = true;
+    el.src = a.src;
+    for (const k of Object.keys(a.attrs || {})) el.setAttribute(k, a.attrs[k]);
+    document.head.appendChild(el);
+  }
 
   function showScreen(name) {
     Object.keys(SCREENS).forEach(k => { SCREENS[k].hidden = (k !== name); });
@@ -2685,12 +2741,22 @@
   // having to duplicate the generator.
   window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS,
                       state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES, reachableWithKeys, openBriefing, levelCleared, EPIGRAPH,
-                      startCareer,
+                      startCareer, shareGame, BRAND,
                       stopNarration: Narrator.stop,
                       view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,
                       SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel };
 
+  $('btnShareClear').addEventListener('click', e => shareGame(e.currentTarget));
+  $('btnShareOver').addEventListener('click', e => shareGame(e.currentTarget));
+  $('btnLegal').addEventListener('click', () => { S.legalFrom = S.state; S.state = 'legal'; showScreen('legal'); });
+  $('btnLegalBack').addEventListener('click', () => {
+    S.state = S.legalFrom || 'menu';
+    showScreen(S.state === 'menu' ? 'menu' : S.state);
+  });
+
   /* ======================= boot ======================= */
+  paintBrand();
+  loadAnalytics();
   syncOptionButtons();
   renderMenu();
   refreshStatus();

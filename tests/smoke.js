@@ -827,6 +827,77 @@ function serve() {
   check('the closing quote reads its attribution too, not just the line',
     credited.whoWords > 2 && credited.whoRead > 0, JSON.stringify(credited));
 
+  /* ---- 15. the shop front: link card, credit, satire notice ---- */
+  const front = await page.evaluate(() => {
+    const meta = p => (document.querySelector(`meta[property="${p}"]`) || {}).content || '';
+    const B = window.RelWorld.BRAND;
+    const credit = document.getElementById('menuCredit');
+    const a = credit.querySelector('a');
+    return {
+      // what a pasted link turns into
+      card: {
+        title: !!meta('og:title'), desc: !!meta('og:description'),
+        image: meta('og:image'), w: meta('og:image:width'), h: meta('og:image:height'),
+        twitter: (document.querySelector('meta[name="twitter:card"]') || {}).content
+      },
+      credit: {
+        name: credit.textContent.includes(B.name),
+        tagline: credit.textContent.includes(B.tagline),
+        href: a ? a.getAttribute('href') : '',
+        newTab: a ? a.getAttribute('rel') : ''
+      },
+      // the notice is on the opening screen and reachable from the menu
+      notice: {
+        opening: (document.getElementById('openingDisclaimer').textContent || '').length > 20,
+        full: (document.getElementById('legalText').textContent || '').length > 200,
+        saysSatire: (document.getElementById('legalText').textContent || '').includes('סאטירי'),
+        saysCoincidental: (document.getElementById('legalText').textContent || '').includes('מקרי בהחלט'),
+        saysTrademark: (document.getElementById('legalText').textContent || '').includes('סימני מסחר')
+      }
+    };
+  });
+  check('a pasted link renders a card, not a grey line of text',
+    front.card.title && front.card.desc && front.card.image.endsWith('/assets/share.png') &&
+    front.card.w === '1200' && front.card.h === '630' && front.card.twitter === 'summary_large_image',
+    JSON.stringify(front.card));
+  check('the credit names the company, is tagged for attribution, and opens safely',
+    front.credit.name && front.credit.tagline &&
+    front.credit.href.includes('utm_source=relworld') && front.credit.href.includes('utm_content=menu') &&
+    front.credit.newTab.includes('noopener'),
+    JSON.stringify(front.credit));
+  check('the satire notice is shown up front and spelled out in full',
+    front.notice.opening && front.notice.full && front.notice.saysSatire &&
+    front.notice.saysCoincidental && front.notice.saysTrademark,
+    JSON.stringify(front.notice));
+
+  // the credit stays out of the way while a floor is being played
+  const quietDuringPlay = await page.evaluate(async () => {
+    const api = window.RelWorld;
+    api.openBriefing(5, true);
+    document.getElementById('btnGo').click();
+    // the dive-in camera runs first; wait for the floor to be live
+    for (let i = 0; i < 60 && api.state.state !== 'playing'; i++) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    const vis = id => {
+      const el = document.getElementById(id);
+      return !!(el && el.offsetParent !== null);
+    };
+    return { state: api.state.state, menuCredit: vis('menuCredit'), overCredit: vis('overCredit') };
+  });
+  check('no credit on screen while a floor is being played',
+    quietDuringPlay.state === 'playing' && !quietDuringPlay.menuCredit && !quietDuringPlay.overCredit,
+    JSON.stringify(quietDuringPlay));
+
+  // nothing is sent anywhere unless analytics has actually been configured
+  const quiet = await page.evaluate(() => ({
+    configured: !!window.RelWorld.BRAND.analytics.src,
+    scripts: [...document.querySelectorAll('script[src]')].map(s => s.getAttribute('src'))
+  }));
+  check('no third-party script loads while analytics is unconfigured',
+    !quiet.configured && quiet.scripts.every(src => src.startsWith('src/')),
+    JSON.stringify(quiet.scripts));
+
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await browser.close();

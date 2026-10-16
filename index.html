@@ -7,6 +7,19 @@
 <meta name="description" content="REL WORLD - משחק סאטירה איזומטרי על הדרך למנכ&quot;לות. 110 קומות, צ'אפחות, חומרה מכל תקופה וקצת יותר מדי ישיבות.">
 <title>REL WORLD - A CEO QUEST FOR GLORY</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕴️</text></svg>">
+<link rel="canonical" href="https://hanassy.github.io/relworld/">
+<!-- the card a pasted link turns into; without these a share is a grey line of text -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="REL WORLD">
+<meta property="og:locale" content="he_IL">
+<meta property="og:url" content="https://hanassy.github.io/relworld/">
+<meta property="og:title" content="REL WORLD — משחק סאטירה על הדרך למנכ&quot;לות">
+<meta property="og:description" content="110 קומות של היי-טק. כל קומה מבוססת על סיפור אמיתי ונגמרת בציטוט אמיתי והזוי. צ'אפחות האצה, חומרה מכל תקופה, וקצת יותר מדי ישיבות.">
+<meta property="og:image" content="https://hanassy.github.io/relworld/assets/share.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="צילום מסך של REL WORLD: קומת משרדים איזומטרית">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="src/styles.css">
 </head>
 <body>
@@ -70,6 +83,19 @@
       <button type="button" class="main-btn" id="btnNewCareer">התחל קריירה חדשה</button>
       <button type="button" class="main-btn ghost" id="btnContinue">המשך מקומה <span id="contLvl">1</span></button>
     </div>
+
+    <p id="menuDisclaimer" class="disclaimer">
+      ⚠️ <span id="legalShort"></span>
+      <button type="button" id="btnLegal" class="linklike">לפרטים</button>
+    </p>
+    <p id="menuCredit" class="credit"></p>
+  </div>
+
+  <!-- ===== הבהרה: מה אמיתי כאן ומה לא ===== -->
+  <div id="legalScreen" class="overlayScreen" hidden>
+    <h1>⚠️ זה סאטירה</h1>
+    <p id="legalText" class="legal-body"></p>
+    <button type="button" class="main-btn" id="btnLegalBack">הבנתי</button>
   </div>
 
   <!-- ===== פתיחת קריירה: ציטוט אחד על מסך מלא, לפני התדריך הראשון ===== -->
@@ -78,6 +104,7 @@
     <div class="missionText">REL WORLD · 110 קומות</div>
     <div id="openingQuote" class="quote"></div>
     <button type="button" class="main-btn" id="btnEnterBuilding">היכנס לבניין</button>
+    <p class="disclaimer" id="openingDisclaimer"></p>
   </div>
 
   <!-- ===== תדריך קולנועי: המצלמה סוקרת את הקומה בזמן שהמשימה מוקראת ===== -->
@@ -103,7 +130,10 @@
     <div class="missionText" id="clearTitle"></div>
     <div id="clearStats" class="objectives"></div>
     <div id="clearQuote" class="quote"></div>
-    <button type="button" class="main-btn" id="btnNext">לקומה הבאה</button>
+    <div class="btn-row">
+      <button type="button" class="main-btn" id="btnNext">לקומה הבאה</button>
+      <button type="button" class="main-btn ghost" id="btnShareClear">🔗 שתף</button>
+    </div>
   </div>
 
   <!-- ===== השהיה ===== -->
@@ -131,8 +161,10 @@
     </form>
     <div class="btn-row">
       <button type="button" class="main-btn" id="btnRetry">נסה את הקומה שוב</button>
+      <button type="button" class="main-btn ghost" id="btnShareOver">🔗 שתף</button>
       <button type="button" class="main-btn ghost" id="btnOverMenu">לתפריט</button>
     </div>
+    <p id="overCredit" class="credit end"></p>
   </div>
 
   <!-- ===== HUD ===== -->
@@ -167,6 +199,7 @@
 </div>
 
 <noscript><p style="color:#f55">המשחק דורש JavaScript פעיל.</p></noscript>
+<script src="src/brand.js"></script>
 <script src="src/levels.js"></script>
 <script src="src/game.js"></script>
 </body>

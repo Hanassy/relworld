@@ -271,7 +271,7 @@ npx eslint src tests       # no build step, no config to write
 `.github/workflows/ci.yml` מריץ על כל push את הליטינג, את בדיקת הניקוד ואת 57 הבדיקות בכרומיום, ורק אם `main` ירוק הוא מפרסם ל-GitHub Pages. אין build — זה
 HTML סטטי, אז ה"בנייה" היא העתקה.
 
-**צעד ידני אחד לפני הפרסום הראשון:** Settings ← Pages ← Source: **GitHub Actions**.
+ה-workflow מדליק את Pages בעצמו בריצה הראשונה (`enablement: true`), אז אין מה להגדיר ידנית.
 
 ### הקרדיט
 

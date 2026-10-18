@@ -2072,6 +2072,50 @@
     ctx.restore();
   }
 
+  /* A stack of forms lying on a desk top. The desk is a diamond, so the paper
+     has to be built from the same two diagonals: an axis-aligned rectangle
+     reads as a card stuck to the air beside the desk rather than a page on it.
+     (s, t) run along those diagonals from the middle of the desk top, and
+     |s| + |t| <= 1 is still on the wood — everything here stays under 0.92. */
+  function deskQuad(pX, pY, z, s0, t0, ds, dt) {
+    const cx = pX, cy = pY - z + 10;
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) {
+      const s = s0 + (i === 1 || i === 2 ? ds : -ds);
+      const t = t0 + (i >= 2 ? dt : -dt);
+      const qx = cx + 20 * (s - t), qy = cy + 10 * (s + t);
+      if (i) ctx.lineTo(qx, qy); else ctx.moveTo(qx, qy);
+    }
+    ctx.closePath();
+  }
+
+  function paperwork(pX, pY, z) {
+    /* The left-front quarter of the desk: clear of the worker standing above
+       it, and clear of the ✓ plate below it on the floors where a desk
+       carries both (the card and floppy years, where the clerk keeps the
+       paperwork after you have handed them the drive). */
+    const s0 = -0.14, t0 = 0.32, ds = 0.22, dt = 0.24;
+    const cx = pX, cy = pY - z + 10;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 5;
+    deskQuad(pX, pY, z, s0 - 0.03, t0 + 0.03, ds, dt);    // the sheets underneath
+    ctx.fillStyle = '#c9bc9c'; ctx.fill();
+    ctx.restore();
+    deskQuad(pX, pY, z, s0, t0, ds, dt);
+    ctx.fillStyle = '#f3ecd8'; ctx.fill();
+    ctx.strokeStyle = 'rgba(70,55,30,0.65)'; ctx.lineWidth = 1; ctx.stroke();
+    // two lines of typing, running along the sheet rather than across it
+    ctx.strokeStyle = 'rgba(85,70,40,0.6)'; ctx.lineWidth = 1.2;
+    for (let i = 0; i < 2; i++) {
+      const t = t0 + dt * (i ? 0.1 : -0.5);
+      const a = s0 - ds * 0.6, b = s0 + ds * (i ? 0.25 : 0.6);
+      ctx.beginPath();
+      ctx.moveTo(cx + 20 * (a - t), cy + 10 * (a + t));
+      ctx.lineTo(cx + 20 * (b - t), cy + 10 * (b + t));
+      ctx.stroke();
+    }
+  }
+
   function roundRectPath(x, y, w, h, r) {
     ctx.beginPath();
     ctx.moveTo(x + r, y);
@@ -2421,24 +2465,10 @@
             ctx.font = '24px Arial'; ctx.fillStyle = '#fff';
             ctx.fillText(sad ? '😭' : paper ? '🧑‍💼' : '👨‍💻', pX, pY - 10 - hop);
             if (paper) {
-              /* Paper lies flat, so it belongs at the near edge of the desk and
-                 after the clerk — put it where the monitor goes and the clerk
-                 sits on top of it and hides all but a sliver. Same mistake the
-                 installed part used to make. It keeps to the left so the ✓ plate
-                 below still has the middle to itself. */
+              /* Drawn after the worker: behind them the stack was invisible,
+                 which is the bug the installed part used to have too. */
               ctx.save();
-              ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 5;
-              ctx.fillStyle = '#efe7d2';
-              ctx.fillRect(pX - 18, pY - 8, 16, 10);
-              ctx.restore();
-              ctx.save();
-              ctx.fillStyle = '#d9cdb0';                    // the sheets under the top one
-              ctx.fillRect(pX - 18, pY - 1, 16, 3);
-              ctx.strokeStyle = 'rgba(70,55,30,0.55)'; ctx.lineWidth = 1;
-              ctx.strokeRect(pX - 18, pY - 8, 16, 10);
-              ctx.fillStyle = 'rgba(90,75,45,0.5)';         // two lines of typing
-              ctx.fillRect(pX - 15, pY - 6, 10, 1);
-              ctx.fillRect(pX - 15, pY - 4, 7, 1);
+              paperwork(pX, pY, z);
               ctx.restore();
             }
             if (upgraded) {

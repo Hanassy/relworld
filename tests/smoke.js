@@ -1137,6 +1137,45 @@ function serve() {
     dubbed.rows.filter(r => r.dubbed).length >= 3,
     dubbed.rows.map(r => `${r.k}:${r.lit}|${r.beingSaid}`).join('  '));
 
+  /* ---- the clerk's paperwork has to be visible, and on the desk ----
+     It used to be drawn before the worker glyph, at the far edge of the desk
+     where the monitor goes, so the worker sat on it and a player saw a sliver
+     of beige. Nothing in the code says "visible", so the only honest check is
+     to render a paper floor and count the pixels that reach the screen. */
+  const paperPixels = async (level) => page.evaluate((lvl) => {
+    const R = window.RelWorld, S = R.state;
+    R.openBriefing(lvl, true); R.stopNarration();
+    S.state = 'playing'; S.buildingAlpha = 0;
+    document.querySelectorAll('.overlayScreen').forEach(e => { e.hidden = true; });
+    // stand the player at a desk, or the camera opens on a corner of empty floor
+    const m = S.floor.map;
+    outer: for (let y = 0; y < m.length; y++) for (let x = 0; x < m[0].length; x++) {
+      if (R.isDesk(m[y][x])) { S.player.x = x; S.player.y = y + 1; S.player.px = x; S.player.py = y + 1; break outer; }
+    }
+    return new Promise(resolve => setTimeout(() => {
+      S.scale = 2.2;
+      setTimeout(() => {
+        const cv = document.getElementById('gameCanvas');
+        const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+        let top = 0, desks = 0;
+        for (const row of S.floor.map) for (const t of row) if (R.isDesk(t)) desks++;
+        // the top sheet's own fill, #f3ecd8, which nothing else on screen uses
+        for (let i = 0; i < d.length; i += 4) {
+          if (Math.abs(d[i] - 0xf3) < 7 && Math.abs(d[i + 1] - 0xec) < 7 && Math.abs(d[i + 2] - 0xd8) < 7) top++;
+        }
+        resolve({ top, desks, age: S.floor.kit.age });
+      }, 500);
+    }, 1200));
+  }, level);
+
+  const onPaper = await paperPixels(0);          // floor 1: clerks, paper, PCs to hand out
+  check('the paperwork on a clerk\'s desk actually reaches the screen',
+    onPaper.age === 'arrival' && onPaper.top > 300, JSON.stringify(onPaper));
+
+  const onFloppy = await paperPixels(4);         // floor 5: paper AND a ✓ plate per desk
+  check('and still does on a floor where the desk also carries a ✓ plate',
+    onFloppy.age === 'paper' && onFloppy.top > 300, JSON.stringify(onFloppy));
+
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await browser.close();

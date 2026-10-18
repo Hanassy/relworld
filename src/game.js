@@ -2406,18 +2406,10 @@
                until you hand them one, and a developer after. */
             const kit = S.floor.kit;
             const paper = kit.age === 'paper' || (kit.age === 'arrival' && !upgraded);
-            if (paper) {
-              // a stack of forms where the monitor would be
-              ctx.save();
-              ctx.fillStyle = '#efe7d2';
-              ctx.fillRect(pX - 10, pY - z - 2, 14, 7);
-              ctx.fillStyle = '#d9cdb0';
-              ctx.fillRect(pX - 10, pY - z + 1, 14, 2);
-              ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 1;
-              ctx.strokeRect(pX - 10, pY - z - 2, 14, 7);
-              ctx.restore();
-            } else {
-              // a lit monitor on the desk, in the colour of this era's upgrade
+            if (!paper) {
+              // a lit monitor on the desk, in the colour of this era's upgrade.
+              // A screen stands up behind the worker, so here the far edge of
+              // the desk is the right place for it.
               ctx.save();
               ctx.shadowColor = upgraded ? kit.hue : '#39f';
               ctx.shadowBlur = 9;
@@ -2428,6 +2420,27 @@
             const hop = sad ? 0 : Math.max(0, Math.sin(S.globalTime * 0.25) * 4);
             ctx.font = '24px Arial'; ctx.fillStyle = '#fff';
             ctx.fillText(sad ? '😭' : paper ? '🧑‍💼' : '👨‍💻', pX, pY - 10 - hop);
+            if (paper) {
+              /* Paper lies flat, so it belongs at the near edge of the desk and
+                 after the clerk — put it where the monitor goes and the clerk
+                 sits on top of it and hides all but a sliver. Same mistake the
+                 installed part used to make. It keeps to the left so the ✓ plate
+                 below still has the middle to itself. */
+              ctx.save();
+              ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 5;
+              ctx.fillStyle = '#efe7d2';
+              ctx.fillRect(pX - 18, pY - 8, 16, 10);
+              ctx.restore();
+              ctx.save();
+              ctx.fillStyle = '#d9cdb0';                    // the sheets under the top one
+              ctx.fillRect(pX - 18, pY - 1, 16, 3);
+              ctx.strokeStyle = 'rgba(70,55,30,0.55)'; ctx.lineWidth = 1;
+              ctx.strokeRect(pX - 18, pY - 8, 16, 10);
+              ctx.fillStyle = 'rgba(90,75,45,0.5)';         // two lines of typing
+              ctx.fillRect(pX - 15, pY - 6, 10, 1);
+              ctx.fillRect(pX - 15, pY - 4, 7, 1);
+              ctx.restore();
+            }
             if (upgraded) {
               // The installed part sits at the FRONT edge of the desk and is
               // drawn last — behind the worker it was simply invisible.

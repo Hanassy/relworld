@@ -132,31 +132,44 @@ function serve() {
              stuckFloors, repairedFloors };
   });
   check('all 100 floors are completable', audit.problems.length === 0, audit.problems.slice(0, 5).join('; '));
-  // The niqqud is a pronunciation hint for the speech engine, not grammar, so
-  // it follows a fixed phonetic convention. Guard it mechanically, because the
-  // same rules have to hold once every mission is pointed.
+  /* A mission is held twice: plain correct Hebrew for the eye, phonetically
+     pointed Hebrew for the voice. The points are deliberately not grammar, so
+     the convention is guarded mechanically — and so is the split itself, since
+     a player must never be shown the misspelt half. */
   const pointing = await page.evaluate(() => {
     const L = window.RelWorld.LEVELS;
     const script = window.RelWorld.missionScript;
-    // one stray mark is a disambiguation, not a vocalised mission
     const marks = t => (String(t).match(/[\u05B0-\u05BC\u05C1\u05C2\u05C7]/g) || []).length;
+    const words = t => (String(t).match(/\S+/g) || []).length;
     const bad = [];
-    let pointedCount = 0;
+    let aligned = 0;
     for (let i = 0; i < L.length; i++) {
-      const texts = [L[i].text, L[i].sub, script(i)];
-      if (marks(L[i].text) < 8) { bad.push(`L${i + 1}: mission is not vocalised`); continue; }
-      pointedCount++;
-      for (const t of texts) {
+      const sc = script(i);
+      // what is shown carries no points at all
+      for (const [name, t] of [['text', L[i].text], ['sub', L[i].sub], ['script', sc.show]]) {
+        if (marks(t) > 0) bad.push(`L${i + 1}: ${name} is shown to the player with vowel points`);
+      }
+      // what is spoken does, and follows the convention. A subtitle is a few
+      // words, so it cannot be held to a full mission's density of marks, and
+      // one in Latin ("Think Different") carries none at all and is fine.
+      const heb = t => /[\u05D0-\u05EA]/.test(t);
+      for (const [name, t, floor] of
+           [['say', L[i].say, 8], ['saySub', L[i].saySub, 1], ['script', sc.say, 8]]) {
+        if (heb(t) && marks(t) < floor) { bad.push(`L${i + 1}: ${name} is not vocalised`); continue; }
         if (t.indexOf('\u05B0') >= 0) bad.push(`L${i + 1}: shva (silent ones are dropped, vocal ones become segol/patach)`);
         if (t.indexOf('\u05DB\u05B8\u05DC') >= 0) bad.push(`L${i + 1}: כָּל with kamatz — must be כּוֹל`);
         if (t.indexOf("\u05E6'\u05D0") >= 0) bad.push(`L${i + 1}: alef inside the slap word — the engine voices it`);
       }
+      // and the two line up word for word, or the read-along lights the wrong one
+      const pairs = [[L[i].text, L[i].say], [L[i].sub, L[i].saySub], [sc.show, sc.say]];
+      if (pairs.every(([a, b]) => words(a) === words(b))) aligned++;
+      else bad.push(`L${i + 1}: ${pairs.map(([a, b]) => words(a) + '/' + words(b)).join(' ')} words`);
     }
-    return { pointedCount, total: L.length, bad: [...new Set(bad)] };
+    return { aligned, total: L.length, bad: [...new Set(bad)] };
   });
-  check('every mission is vocalised, and follows the phonetic niqqud convention',
-    pointing.bad.length === 0 && pointing.pointedCount === pointing.total,
-    `${pointing.pointedCount}/${pointing.total} pointed${pointing.bad.length ? ': ' + pointing.bad.slice(0, 3).join('; ') : ''}`);
+  check('shown Hebrew is plain, spoken Hebrew is pointed, and they line up word for word',
+    pointing.bad.length === 0 && pointing.aligned === pointing.total,
+    `${pointing.aligned}/${pointing.total} aligned${pointing.bad.length ? ': ' + pointing.bad.slice(0, 3).join('; ') : ''}`);
 
   // Negative control: a validator that cannot fail proves nothing, so hand it a
   // floor where the only key sits behind the door it opens.
@@ -538,8 +551,9 @@ function serve() {
   /* ---- 7. the arrow tutorial line is not repeated every floor ---- */
   const hints = await page.evaluate(() => {
     const f = window.RelWorld.missionScript;
-    // a mission may be written with niqqud, so compare on the bare letters
-    const bare = i => f(i).replace(/[\u0591-\u05C7]/g, '');
+    // the shown half is already plain, but strip anyway so the test does not
+    // quietly start passing for the wrong reason if that ever changes
+    const bare = i => f(i).show.replace(/[\u0591-\u05C7]/g, '');
     const needle = 'החץ המהבהב';
     return { first: bare(0).includes(needle), second: bare(1).includes(needle),
              third: bare(2).includes(needle), late: bare(40).includes(needle),
@@ -747,14 +761,19 @@ function serve() {
     const bare = s => s.replace(/[\u0591-\u05C7]/g, '');
     const plain = 'מחשב על כל שולחן ובכל בית';
     const spoken = 'מחשב על כול שולחן ובכול בית';
+    const words = t => (String(t).match(/\S+/g) || []).length;
     return {
       // it is the game's epigraph, so no floor may also close on it
       notAQuote: api.QUOTES.every(q => !bare(q.t).includes(plain) && !bare(q.t).includes(spoken)),
-      isEpigraph: bare(api.EPIGRAPH.t).includes(spoken)
+      // shown correctly spelled, spoken in the plene form the engine needs
+      isEpigraph: api.EPIGRAPH.t.includes(plain),
+      spokenPlene: bare(api.EPIGRAPH.sayT).includes(spoken),
+      aligned: words(api.EPIGRAPH.t) === words(api.EPIGRAPH.sayT) &&
+               words(api.EPIGRAPH.who) === words(api.EPIGRAPH.sayWho)
     };
   });
-  check('the computer-on-every-desk line opens the game and is not also a floor quote',
-    epi.isEpigraph && epi.notAQuote, JSON.stringify(epi));
+  check('the computer-on-every-desk line opens the game, shown plain and spoken plene',
+    epi.isEpigraph && epi.notAQuote && epi.spokenPlene && epi.aligned, JSON.stringify(epi));
 
   const readQuote = await page.evaluate(async () => {
     const api = window.RelWorld;
@@ -795,7 +814,7 @@ function serve() {
         screen: !document.getElementById('openingScreen').hidden,
         briefing: !document.getElementById('briefingScreen').hidden,
         // the mission's own script never carries the epigraph
-        inScript: bare(api.missionScript(0)).includes('מחשב על כול שולחן')
+        inScript: bare(api.missionScript(0).show).includes('מחשב על כל שולחן')
       }
     };
   });
@@ -1055,6 +1074,68 @@ function serve() {
   });
   check('version.json is served and names a build',
     vjson.ok && !!(vjson.body || {}).build, JSON.stringify(vjson));
+
+  /* ---- 18. the lit word is the correct spelling of the word being said ---- */
+  const dubbed = await page.evaluate(async () => {
+    const api = window.RelWorld;
+    api.openBriefing(4, true);
+    await new Promise(r => setTimeout(r, 400));
+    api.stopNarration();              // drive the read-along by hand
+    const s = api.state;
+    const sc = api.missionScript(4);
+    const shown = sc.show.match(/\S+/g);
+    const said = sc.say.match(/\S+/g);
+    const starts = s.brief.sayStarts;
+    const rows = [];
+    // walk a few words spread across the mission
+    for (const k of [0, 3, 9, 17, shown.length - 1]) {
+      // park progress just inside the k-th SPOKEN word
+      s.brief.wordIndex = -2;
+      s.brief.progress = 0;
+      const p = (starts[k] + 1) / s.brief.textLen;
+      api.state.brief.progress = 0;
+      window.RelWorld.narrationProgress(p);
+      const lit = document.querySelector('#bText .w.now');
+      rows.push({
+        k,
+        lit: lit ? lit.textContent : null,
+        wantShown: shown[k],
+        beingSaid: said[k],
+        // the lit word is always the plain one
+        litIsPlain: lit ? !/[\u0591-\u05C7]/.test(lit.textContent) : false,
+        // and for a Hebrew word the voice is given something different. A year,
+        // a Latin word or the goal tag is the same in both halves by design.
+        dubbed: /[\u05D0-\u05EA]/.test(shown[k]) && said[k] !== shown[k]
+      });
+    }
+    return { rows, shownLen: shown.length, saidLen: said.length };
+  });
+  // the phonetic spellings are deliberate misspellings; none may leak on screen
+  const spelling = await page.evaluate(() => {
+    const L = window.RelWorld.LEVELS;
+    const wrong = [
+      [/צ'פח/, "צ'פחות without the alef"],
+      [/(^|\s)[ולבהש]?כול(\s|[,.:;!?]|$)/, 'כול with the plene vav'],
+      [/(^|\s)ה?זות(\s|[,.:;!?]|$)/, 'זות for זאת'],
+      [/עסר/, 'עסרים for עשרים'],
+      [/(^|\s)צ'ד(\s|[,.:;!?]|$)/, "צ'ד for צ'אד"]
+    ];
+    const hits = [];
+    L.forEach((l, i) => {
+      for (const f of ['text', 'sub']) {
+        for (const [re, why] of wrong) if (re.test(l[f])) hits.push(`L${i + 1}.${f}: ${why}`);
+      }
+    });
+    return hits;
+  });
+  check('no phonetic misspelling leaks into the Hebrew a player reads',
+    spelling.length === 0, spelling.slice(0, 4).join(' | '));
+
+  check('every lit word is the plain spelling of the phonetic word being spoken',
+    dubbed.shownLen === dubbed.saidLen &&
+    dubbed.rows.every(r => r.lit === r.wantShown && r.litIsPlain) &&
+    dubbed.rows.filter(r => r.dubbed).length >= 3,
+    dubbed.rows.map(r => `${r.k}:${r.lit}|${r.beingSaid}`).join('  '));
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

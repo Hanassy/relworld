@@ -88,6 +88,7 @@
     subtitle: l.sub,
     type: l.type,
     text: l.text,
+    say: l.say || l.text,
     goal: l.goal,
     // a floor may rename where its exit leads: the tile is still the HR office,
     // but on the disguise floor you are racing Chad to the grooming meeting
@@ -112,8 +113,11 @@
      delusion, so it opens the game instead of closing a floor: every floor
      above is built on it, starting with the clerks who have only paper. */
   const EPIGRAPH = {
-    t: 'מַחשֵׁב עַל כּוֹל שׁוּלחָן וּבֵכוֹל בַּיִת.',
-    who: 'בִּיל גֵייטס, חֵזוֹן מַיקרוֹסוֹפט', year: 1980
+    t: 'מחשב על כל שולחן ובכל בית.',
+    who: 'ביל גייטס, חזון מיקרוסופט', year: 1980,
+    // same words, pointed: shown above, spoken below
+    sayT: 'מַחשֵׁב עַל כּוֹל שׁוּלחָן וּבֵכוֹל בַּיִת.',
+    sayWho: 'בִּיל גֵייטס, חֵזוֹן מַיקרוֹסוֹפט'
   };
 
   /** Fills a .quote box and hands back the read-along the narrator drives.
@@ -121,14 +125,14 @@
       both are shown the same way and both read the attribution out loud. */
   function showQuote(box, q) {
     box.innerHTML = '<div class="q-text"></div><div class="q-who"></div>';
-    const said = `״${q.t}״`;
-    const credit = `— ${q.who}, ${q.year}.`;
-    const words = splitWords(box.querySelector('.q-text'), said)
-      .concat(splitWords(box.querySelector('.q-who'), credit)
-        .map(w => ({ start: said.length + 1 + w.start, el: w.el })));
+    const shownQ = `״${q.t}״`;
+    const shownWho = `— ${q.who}, ${q.year}.`;
+    const words = splitWords(box.querySelector('.q-text'), shownQ)
+      .concat(splitWords(box.querySelector('.q-who'), shownWho)
+        .map(w => ({ start: shownQ.length + 1 + w.start, el: w.el })));
     // the speaker is part of the line: a quote with no name read out is a rumour
-    const script = `${said} ${credit}`;
-    return { script, words };
+    const script = `״${q.sayT || q.t}״ — ${q.sayWho || q.who}, ${q.year}.`;
+    return { script, words, spoken: { starts: wordStarts(script), length: script.length } };
   }
 
   const GOAL_TILE = [TILE.ELEVATOR, TILE.MEETING, TILE.HR];
@@ -1386,25 +1390,46 @@
     return words;
   }
 
-  /** Lights the word the narrator has reached, and dims the ones behind it. */
-  function highlightWords(words, total, progress) {
+  /** Character offset of every whitespace-separated word in `text`. The
+      narrator reports progress through the text it was handed, which is the
+      phonetic one, so its offsets have to be measured on that string. */
+  function wordStarts(text) {
+    const out = [];
+    const re = /\S+/g;
+    let m;
+    while ((m = re.exec(text)) !== null) out.push(m.index);
+    return out;
+  }
+
+  /** Lights the word the narrator has reached, and dims the ones behind it.
+      `spoken` is where the narrator is; `words` is what the player sees. The
+      two are word-for-word translations of each other, so the index carries
+      across even though the strings differ. */
+  function highlightWords(words, spoken, progress) {
     if (!words.length) return;
-    const at = clamp(progress, 0, 1) * Math.max(1, total);
+    const starts = spoken && spoken.starts && spoken.starts.length === words.length
+      ? spoken.starts : words.map(w => w.start);
+    const total = Math.max(1, (spoken && spoken.length) || 1);
+    const at = clamp(progress, 0, 1) * total;
     let idx = 0;
-    while (idx + 1 < words.length && words[idx + 1].start <= at) idx++;
+    while (idx + 1 < starts.length && starts[idx + 1] <= at) idx++;
     for (let i = 0; i < words.length; i++) {
       words[i].el.classList.toggle('now', i === idx);
       words[i].el.classList.toggle('said', i < idx);
     }
   }
 
-  function renderNarration(text) {
+  /** Renders the words the player reads, and remembers where the narrator's
+      own words sit, so progress through one can light up the other. */
+  function renderNarration(text, say) {
     const host = $('bText');
-    // vowel points need more room than bare letters or they turn to mush
-    host.classList.toggle('pointed', isPointed(text));
+    const spoken = say || text;
     host.textContent = '';
     S.brief.words = [];
-    S.brief.textLen = Math.max(1, text.length);
+    // progress arrives as a fraction of the SPOKEN text, so it is measured
+    // against that string, not against the one on screen
+    S.brief.textLen = Math.max(1, spoken.length);
+    S.brief.sayStarts = wordStarts(spoken);
     S.brief.wordIndex = -2;
     // Each sentence goes on its own line: it matches the pause the narrator
     // takes at a full stop, and gives the eye somewhere to rest.
@@ -1437,9 +1462,12 @@
     S.brief.progress = clamp(p, 0, 1);
     const words = S.brief.words;
     if (!words.length) return;
+    // progress is through the SPOKEN text, so it is measured against that
+    const starts = S.brief.sayStarts.length === words.length
+      ? S.brief.sayStarts : words.map(w => w.start);
     const charPos = S.brief.progress * S.brief.textLen;
     let idx = 0;
-    while (idx + 1 < words.length && words[idx + 1].start <= charPos) idx++;
+    while (idx + 1 < starts.length && starts[idx + 1] <= charPos) idx++;
     if (idx === S.brief.wordIndex) return;
     S.brief.wordIndex = idx;
     for (let i = 0; i < words.length; i++) {
@@ -1450,36 +1478,43 @@
 
   // Hebrew vowel points.
   //
-  // The niqqud in this game is a pronunciation hint for the speech engine, not
+  // The niqqud in this game is a pronunciation score for the speech engine, not
   // grammar — it is deliberately "wrong" where correct pointing is misread:
   // plene spelling throughout, cholam rather than kamatz for an "o" (כּוֹל, not
   // כָּל), no silent alef the engine would voice, a silent shva left unmarked
-  // and a vocal one written as segol/patach. A pointed mission has to stay
-  // pointed to the end of the sentence, so the tail comes in both spellings.
-  // A single mark is only a disambiguation (העֵר = "wake", not העיר), so it takes a
-  // real density of them before a mission counts as vocalised.
-  const NIQQUD_G = /[\u05B0-\u05BC\u05C1\u05C2\u05C7]/g;
-  const isPointed = t => (String(t).match(NIQQUD_G) || []).length >= 8;
+  // and a vocal one written as segol/patach.
+  //
+  // None of that is ever shown to a player any more. It reads as misspelt
+  // Hebrew with the working parked in the middle of it, which is a poor thing
+  // to put in front of someone; the points exist for the voice, so the voice
+  // is the only thing that gets them.
+  /* A mission exists twice over. What a player READS is plain, correctly
+     spelled Hebrew. What the speech engine is GIVEN is the same words with
+     phonetic vowel points and the odd deliberate misspelling, because that is
+     what makes it sound right — כּוֹל for כל, צַ'פּחוֹת without the alef.
 
-  /** What actually gets read out: the mission, then where to end up. */
+     The two are generated word for word from each other, so word N of one is
+     word N of the other, and the read-along can light up the correct spelling
+     while the engine pronounces the phonetic one. The lines the engine adds
+     around a mission are written as pairs here for the same reason. */
   function missionScript(i) {
-    /* Every mission carries vowel points now (tools/vocalize.js, enforced by
-       the suite), so the lines the engine adds around one are pointed too —
-       dropping into bare Hebrew mid-sentence changes how the voice reads it. */
     // the blinking-arrow explanation is a tutorial line: say it on the first
     // couple of floors and then stop repeating it every single briefing
-    const hint = i >= 2 ? '' : ' הַחֵץ הַמֵהַבהֵב מַצבִּיעַ לֵשָׁם לֵאוֹרֶך כּוֹל הַקוֹמָה.';
-    const lead = ' הַיַעַד שֶׁלךָ: ';
-    return `${STORY[i].text}${lead}${goalTag(i)}.${hint}`;
+    const hint = i >= 2 ? '' : ' החץ המהבהב מצביע לשם לאורך כל הקומה.';
+    const sayHint = i >= 2 ? '' : ' הַחֵץ הַמֵהַבהֵב מַצבִּיעַ לֵשָׁם לֵאוֹרֶך כּוֹל הַקוֹמָה.';
+    const tail = `${goalTag(i)}.`;
+    return {
+      show: `${STORY[i].text} היעד שלך: ${tail}${hint}`,
+      say: `${STORY[i].say} הַיַעַד שֶׁלךָ: ${tail}${sayHint}`
+    };
   }
 
   function narrateMission() {
-    const story = missionScript(S.level);
-    renderNarration(story);
+    const script = missionScript(S.level);
+    renderNarration(script.show, script.say);
     narrationProgress(0);
     S.brief.tourBase = S.brief.t >= BRIEF_OPEN_MS ? 0 : -1;
-
-    Narrator.speak(story, narrationProgress);
+    Narrator.speak(script.say, narrationProgress);
   }
 
   /* The career opens on one quotation, held on a screen of its own — the same
@@ -1492,7 +1527,7 @@
     const epi = showQuote($('openingQuote'), EPIGRAPH);
     showScreen('opening');
     track('career-start');
-    Narrator.speak(epi.script, p => highlightWords(epi.words, epi.script.length, p));
+    Narrator.speak(epi.script, p => highlightWords(epi.words, epi.spoken, p));
   }
 
   function openBriefing(level, resetRun) {
@@ -1594,7 +1629,7 @@
       showScreen('clear');
       // the quote is the punchline of the floor, so it is read out loud —
       // name and year included — with the words lighting up as they are said
-      Narrator.speak(quote.script, p => highlightWords(quote.words, quote.script.length, p));
+      Narrator.speak(quote.script, p => highlightWords(quote.words, quote.spoken, p));
     }, 900);
   }
 
@@ -2833,6 +2868,7 @@
   // having to duplicate the generator.
   window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS,
                       state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES, reachableWithKeys, openBriefing, levelCleared, EPIGRAPH,
+                      narrationProgress,
                       startCareer, shareGame, BRAND, track, BUILD, checkForUpdate,
                       stopNarration: Narrator.stop,
                       view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,

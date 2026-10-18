@@ -1,5 +1,13 @@
 /* =========================================================================
-   Writes the vowel points into every mission in src/levels.js.
+   Generates the SPOKEN half of every mission in src/levels.js.
+
+   Each level holds two strings. `text` (and `sub`) is plain, correctly spelled
+   Hebrew — that is what a player reads. `say` (and `saySub`) is the same words
+   with vowel points, and that is the only thing the speech engine is given.
+   This tool writes the second from the first, word for word, so the two always
+   have the same number of words and the read-along can light up the correct
+   spelling while the voice pronounces the phonetic one. `text` is never
+   touched.
 
    The points are NOT grammar. They are a pronunciation score for the browser's
    Hebrew speech engine, which reads the briefing out loud, and they follow one
@@ -16,8 +24,8 @@
    The word list lives in tools/niqqud.json, one entry per word, so a word that
    comes out wrong is fixed once and every mission using it follows. Run:
 
-       node tools/vocalize.js          # rewrites src/levels.js in place
-       node tools/vocalize.js --check  # fails if anything is unvocalised
+       node tools/vocalize.js          # regenerates say/saySub in src/levels.js
+       node tools/vocalize.js --check  # fails if they are stale or misaligned
 
    ========================================================================= */
 'use strict';
@@ -70,14 +78,27 @@ function main() {
   const data = JSON.parse(m[2]);
 
   const unknown = new Set();
+  const misaligned = [];
+  const words = t => (String(t).match(/\S+/g) || []).length;
   let changed = 0;
-  for (const level of data) {
-    for (const field of ['text', 'sub']) {
-      const r = vocalize(level[field]);
+  data.forEach((level, i) => {
+    for (const [plain, spoken] of [['text', 'say'], ['sub', 'saySub']]) {
+      const r = vocalize(level[plain]);
       r.unknown.forEach(w => unknown.add(w));
-      if (r.out !== level[field]) changed++;
-      level[field] = r.out;
+      if (r.out !== level[spoken]) changed++;
+      level[spoken] = r.out;
+      // the read-along maps word N of one onto word N of the other, so a
+      // mismatch here would silently light up the wrong word
+      if (words(level[plain]) !== words(level[spoken])) {
+        misaligned.push(`L${i + 1}.${plain}: ${words(level[plain])} shown vs ${words(level[spoken])} spoken`);
+      }
     }
+  });
+
+  if (misaligned.length) {
+    console.error(`${misaligned.length} missions do not line up word for word:`);
+    console.error('  ' + misaligned.slice(0, 5).join('\n  '));
+    process.exit(1);
   }
 
   if (unknown.size) {
@@ -86,11 +107,14 @@ function main() {
     process.exit(1);
   }
   if (check) {
-    console.log(changed ? `${changed} fields are not vocalised` : 'every mission is vocalised');
+    console.log(changed
+      ? `${changed} spoken fields are stale — run node tools/vocalize.js`
+      : `all ${data.length} missions have an up-to-date, word-aligned spoken half`);
     process.exit(changed ? 1 : 0);
   }
 
-  const ORDER = ['name', 'sub', 'type', 'goal', 'goalName', 'scene', 'era', 'avatar', 'text', 'q'];
+  const ORDER = ['name', 'sub', 'saySub', 'type', 'goal', 'goalName', 'scene',
+                 'era', 'avatar', 'text', 'say', 'q'];
   const ordered = data.map(l => {
     const o = {};
     for (const k of ORDER) if (l[k] !== undefined) o[k] = l[k];
@@ -99,7 +123,7 @@ function main() {
   let body = JSON.stringify(ordered, null, 2)
     .split('\n').map(line => (line.trim() ? '  ' + line : line)).join('\n').replace(/^ {2}/, '');
   fs.writeFileSync(LEVELS, src.slice(0, m.index + m[1].length) + body + src.slice(m.index + m[1].length + m[2].length));
-  console.log(`vocalised ${data.length} missions (${changed} fields rewritten)`);
+  console.log(`vocalised ${data.length} missions (${changed} spoken fields rewritten)`);
 }
 
 main();

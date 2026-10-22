@@ -17,12 +17,29 @@
                `text` is read on screen, `say` is the phonetic half, same rule
                as a mission (see tools/vocalize.js).
      level     an ordinary level object. Same shape as src/levels.js, same
-               fields, same type numbers — it goes through the same machinery.
+               fields, same type numbers — it goes through the same machinery,
+               plus two fields a career floor never has:
+
+       twist   the thing this mission does that the tower cannot, and the
+               reason it is worth a week instead of being floor 111 with a red
+               border. Reaching the first goal hands you the thing, turns you
+               into it (`avatar`), and moves the goal to the far side of the
+               floor (`goal`, `goalName`), with `bonus` seconds added because
+               the second half is a different journey. `announce` is shouted
+               at the moment it happens. Required.
+       outro   the closing line, read out on the clear screen before the real
+               quote. The joke; the quote is the true part. Required.
 
    The satire rule from levels.js applies here and applies harder, because the
    story is this week's and the people in it are reading the news too: the
    event in `source` is real and the closing quote is real, which is exactly
    why the mission, the plot and the behaviour in it are invented.
+
+   And the aim is narrower than "satire". The joke should be one the people
+   who made the news would laugh at — funny, a little true, and gentle. It is
+   about the situation, never about anybody's competence or character, and it
+   accuses nobody of anything. Where reporting conflicts, `source` says so
+   rather than picking the version that makes the better story.
 
    To add this week's: node tools/news-add.js (see the header there).
    ========================================================================= */
@@ -34,40 +51,53 @@
   {
     "id": "tesla-roadster-flight-2026-10",
     "date": "2026-10-15",
-    "headline": "טסלה חשפה מכונית מעופפת",
-    "blurb": "ה-Roadster קפץ, ריחף ונחת. הצוות שבנה אותו עמד בצד.",
-    "source": "ב-15 באוקטובר 2026 חשפה טסלה במתקן של SpaceX בוואקו, טקסס, אב-טיפוס של ה-Roadster שממריא על סילוני אוויר. מאסק קרא לזה מכונית מעופפת; ייצור הובטח ל-2028.",
+    "headline": "טסלה הקפיצה את ה-Roadster לאוויר",
+    "blurb": "סילוני גז קר, גלגול באוויר, נחיתה. ואז התחיל הוויכוח מי נוסע ראשון.",
+    "source": "ב-15 באוקטובר 2026 הציגה טסלה בטקסס את ה-Roadster מדור שני, שמזנק לאוויר ומסתובב על סילוני גז קר של SpaceX. יעד הייצור שהוכרז הוא 2028, ולרכב אין אישור לנסיעה בכביש. פרטי ההדגמה — המקום המדויק והנתונים — דווחו בגרסאות שונות.",
     "bulletin": [
       {
         "who": "📺 קריין",
-        "text": "ערב טוב, ואנחנו פותחים בשידור מיוחד. בטקסס הסתיימה הרגע חשיפה שאיש לא האמין שתגיע: מכונית ספורט שעולה באוויר על סילונים.",
-        "say": "עֶרֶב טוֹב, וַאֲנַחנוּ פּוֹתחִים בֵּשִׁידוּר מֵיוּחַד. בֵּטֵקסַס הִסתַיימָה הָרֶגַע חֲשִׂיפָה שֵׁאִישׁ לֹא הֵאֵמִין שֵׁתַגִיעַ: מֵכוֹנִית ספּוֹרט שֵׁעוֹלָה בָּאֲווִיר עַל סִילוֹנִים."
+        "text": "ערב טוב. בטקסס הקפיצו היום מכונית ספורט לאוויר, היא הסתובבה סביב עצמה ונחתה על הגלגלים. עד כאן החלק המתוכנן.",
+        "say": "עֶרֶב טוֹב. בֵּטֵקסַס הִקפִּיצוּ הַיוֹם מֵכוֹנִית ספּוֹרט לָאֲווִיר, הִיא הִסתוֹבּבָה סָבִיב עַצמָה וֵנָחֲתָה עַל הַגַלגַלִים. עַד כָּאן הַחֵלֶק הַמֵתוּכנָן."
       },
       {
         "who": "🎤 כתב בשטח",
-        "text": "המכונית קפצה, ריחפה שלוש שניות ונחתה. הקהל השתגע. צוות המכונאים שבנה אותה עמד בצד, והמנכ\"ל כבר עלה לבמה לבדו.",
-        "say": "הַמֵכוֹנִית קָפצָה, רִיחֲפָה שָׁלוֹשׁ שׁנִיוֹת וֵנָחֲתָה. הַקָהַל הִשׁתַגֵעַ. צֶווֶת הַמֵכוֹנָאִים שֶׁבָּנָה אוֹתָה עָמַד בַּצַד, וֵהַמַנכָּ\"ל כּבָר עָלָה לַבָּמָה לֵבַדוֹ."
+        "text": "אחרי הנחיתה כל הצוות עמד סביב המכונית, ואז מישהו שאל מי נוסע בה ראשון. אני עדיין פה. הוויכוח עדיין נמשך.",
+        "say": "אַחֲרֵי הַנחִיתָה כּוֹל הַצֶווֶת עָמַד סָבִיב הַמֵכוֹנִית, וֵאָז מִישֶׁהוּ שָׁאַל מִי נוֹסֵעַ בָּה רִאשׁוֹן. אֲנִי עֲדַיִין פֹּה. הַוִויכּוּחַ עֲדַיִין נִמשָׁך."
       },
       {
         "who": "📺 קריין",
-        "text": "ומכאן זה כבר עניין של קרדיט. חוזרים אליך, לקומה.",
-        "say": "וּמִכָּאן זֶה כּבָר עִניָין שֶׁל קרֵדִיט. חוֹזרִים אֵלֵיךָ, לַקוֹמָה."
+        "text": "אז המכונית עפה, והאנשים תקועים. חוזרים אליך, לקומה.",
+        "say": "אָז הַמֵכוֹנִית עָפָה, וֵהָאֲנָשִׁים תקוּעִים. חוֹזרִים אֵלֵיךָ, לַקוֹמָה."
       }
     ],
     "level": {
-      "name": "מי הרים את המכונית",
-      "sub": "אילון רוצה את כל הקרדיט",
-      "saySub": "אִילוֹן רוֹצֶה אֶת כּוֹל הַקרֵדִיט",
+      "name": "מי נוסע ראשון",
+      "sub": "המכונית מוכנה, הצוות פחות",
+      "saySub": "הַמֵכוֹנִית מוּכָנָה, הַצֶווֶת פָּחוֹת",
       "type": 2,
-      "goal": "הבמה",
-      "goalName": "הבמה 🎤",
+      "goal": "המכונית",
+      "goalName": "המכונית 🚗",
       "scene": "cinema",
       "era": 2026,
-      "text": "צוות המכונאים הגיע לפריצת דרך: המכונית מרחפת. הם הכינו מצגת מרשימה, אבל אילון לא מסופק — הוא רוצה את הבמה ואת כל הקרדיט. עקוף את ראש הצוות, נעל אותו מאחורי דלת, והגע למכונית ראשון. חלק צ'אפחות הצלחה לכל העובדים עד שיבינו מי המנהל כאן.",
-      "say": "צֶווֶת הַמֵכוֹנָאִים הִגִיעַ לִפרִיצַת דֵרֶך: הַמֵכוֹנִית מֵרַחֶפֶת. הֵם הֵכִינוּ מַצֶגֶת מַרשִׁימָה, אַבָל אִילוֹן לֹא מֵסוּפַּק — הוּא רוֹצֶה אֶת הַבָּמָה וֵאֶת כּוֹל הַקרֵדִיט. עֲקוֹף אֶת רֹאשׁ הַצֶווֶת, נֵעַל אוֹתוֹ מֵאַחוֹרֵי דֶלֶת, וֵהַגַע לַמֵכוֹנִית רִאשׁוֹן. חַלֵק צַ'פּחוֹת הַצלָחָה לֵכוֹל הָעוֹבדִים עַד שֶׁיָבִינוּ מִי הַמֵנַהֵל כָּאן.",
+      "avatar": "🕴️",
+      "text": "המכונית עובדת, וזאת כבר לא הבעיה. כל הצוות עומד סביבה ומתווכח מי נוסע בה ראשון, והוויכוח הזה לא ייגמר לבד. חלק צ'אפחות הצלחה לכולם, עקוף את ראש הצוות, ותפוס את ההגה לפני כולם.",
+      "say": "הַמֵכוֹנִית עוֹבֶדֶת, וֵזוֹת כּבָר לֹא הַבֵּעָיָה. כּוֹל הַצֶווֶת עוֹמֵד סבִיבָה וּמִתווַכֵּחַ מִי נוֹסֵעַ בָּה רִאשׁוֹן, וֵהַוִויכּוּחַ הַזֶה לֹא יִיגָמֵר לֵבַד. חַלֵק צַ'פּחוֹת הַצלָחָה לֵכוּלָם, עֲקוֹף אֶת רֹאשׁ הַצֶווֶת, וֵתפוֹס אֶת הַהֶגֶה לִפנֵי כּוּלָם.",
+      "twist": {
+        "avatar": "🚗",
+        "goal": "המסלול",
+        "goalName": "המסלול 🏁",
+        "bonus": 45,
+        "announce": "אתה בפנים. המסלול בצד השני.",
+        "sayAnnounce": "אַתָה בִּפנִים. הַמַסלוּל בַּצַד הַשֵׁנִי."
+      },
+      "outro": {
+        "text": "בסוף המכונית ברחה ונסעה בעצמה.",
+        "say": "בַּסוֹף הַמֵכוֹנִית בָּרחָה וֵנָסעָה בֵּעַצמָה."
+      },
       "q": {
-        "t": "זו לא בהכרח מכונית ממוטבת לבטיחות.",
-        "who": "אילון מאסק, על ה-Roadster המעופף (כפי שדווח)",
+        "t": "זאת המכונית היחידה שטסלה מייצרת שנוהגים בה ביד.",
+        "who": "אילון מאסק, בחשיפת ה-Roadster (כפי שדווח)",
         "year": 2026
       }
     }

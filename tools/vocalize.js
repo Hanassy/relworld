@@ -124,6 +124,12 @@ function main() {
       pair(item.level, 'text', 'say', `N${i + 1}.text`);
       pair(item.level, 'sub', 'saySub', `N${i + 1}.sub`);
       (item.bulletin || []).forEach((b, j) => pair(b, 'text', 'say', `N${i + 1}.bulletin[${j}]`));
+      // the twist is shouted on screen and the outro is read on the clear
+      // screen, so both are narrated and both need the phonetic half
+      if (item.level.twist) {
+        pair(item.level.twist, 'announce', 'sayAnnounce', `N${i + 1}.twist`);
+      }
+      if (item.level.outro) pair(item.level.outro, 'text', 'say', `N${i + 1}.outro`);
     });
 
   if (misaligned.length) {
@@ -145,7 +151,7 @@ function main() {
   }
 
   const ORDER = ['name', 'sub', 'saySub', 'type', 'goal', 'goalName', 'scene',
-                 'era', 'avatar', 'text', 'say', 'q'];
+                 'era', 'avatar', 'text', 'say', 'twist', 'outro', 'q'];
   const ordered = data.map(l => {
     const o = {};
     for (const k of ORDER) if (l[k] !== undefined) o[k] = l[k];

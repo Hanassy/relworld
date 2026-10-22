@@ -1297,6 +1297,65 @@ function serve() {
     newsProgress.before === newsProgress.after && /חדשות/.test(newsProgress.next),
     JSON.stringify(newsProgress));
 
+  /* ---- the twist: take the thing, become it, drive to the far side ---- */
+  const twist = await page.evaluate(async () => {
+    const R = window.RelWorld, S = R.state;
+    R.openBriefing(R.newsIndex(0), true);
+    R.startLevel();
+    // tryMove does nothing until the dive-in hands over control
+    for (let i = 0; i < 80 && S.state !== 'playing'; i++) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    const f = S.floor;
+    const before = {
+      avatar: f.avatar, tag: f.tag, goal: { ...f.goal },
+      time: S.timeLeft, twisted: S.twisted, state: S.state
+    };
+    // satisfy the floor, then walk onto the goal the way a player would
+    S.slaps = f.desks; S.partsGiven = f.desks; S.coinsGot = f.coinQuota;
+    S.chadSlapped = true;
+    const dist = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    // step onto the goal the way a player does, through tryMove itself
+    const stepOnto = () => {
+      S.player.x = f.goal.x - 1; S.player.y = f.goal.y;
+      R.tryMove(1, 0);
+    };
+    stepOnto();
+    const mid = {
+      avatar: f.avatar, tag: f.tag, goal: { ...f.goal },
+      time: S.timeLeft, twisted: S.twisted, state: S.state,
+      moved: dist(before.goal, f.goal),
+      // the new goal has to be somewhere you can actually drive to
+      reachable: R.distanceField(S.map, before.goal.x, before.goal.y, true)[f.goal.y][f.goal.x]
+    };
+    stepOnto();
+    return { before, mid, cleared: S.state === 'clear',
+             outro: (document.getElementById('clearOutro').textContent || '').trim(),
+             outroShown: document.getElementById('clearOutro').hidden === false };
+  });
+  check('reaching the first goal hands you the thing and turns you into it',
+    twist.before.avatar !== twist.mid.avatar && twist.mid.avatar === '🚗' &&
+    twist.mid.twisted && twist.mid.state !== 'clear',
+    `${twist.before.avatar} -> ${twist.mid.avatar}`);
+  /* "180 degrees": the point of the second half is that it is a drive. A new
+     goal two tiles away would make the twist a formality, and one you cannot
+     reach would make the mission impossible. */
+  check('and the goal moves to the far side of the floor, still reachable',
+    twist.mid.moved >= 8 && Number.isFinite(twist.mid.reachable) &&
+    twist.mid.tag !== twist.before.tag && twist.mid.time > twist.before.time,
+    `moved ${twist.mid.moved} tiles, ${twist.mid.reachable} steps away, ` +
+    `+${twist.mid.time - twist.before.time}s`);
+  check('the second arrival clears, and the punchline is read out',
+    twist.cleared && twist.outroShown && twist.outro.length > 8,
+    `${twist.cleared} | ${twist.outro}`);
+
+  /* The twist is what makes a news mission worth a week rather than floor 111
+     with a red border, so the tool that adds one refuses a draft without it. */
+  const required = await page.evaluate(() =>
+    window.RelWorld.NEWS.every(n => n.level.twist && n.level.outro &&
+      n.level.twist.avatar && n.level.twist.goal !== n.level.goal));
+  check('every news mission on file declares a twist and a closing line', required);
+
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await browser.close();

@@ -21,7 +21,15 @@
        "source": "...",
        "bulletin": [ { "who": "📺 קריין", "text": "..." }, ... ],
        "level": { "name", "sub", "type", "goal", "goalName", "scene", "era",
-                  "text", "q": { "t", "who", "year" } } }
+                  "text",
+                  "twist": { "avatar", "goal", "goalName", "announce" },
+                  "outro": { "text" },
+                  "q": { "t", "who", "year" } } }
+
+   `twist` is the part that makes it worth a week rather than being floor 111
+   with a red border: reaching the first goal hands you the thing, turns you
+   into it, and moves the goal to the far side of the floor. `outro` is the
+   line read out at the end. The tool refuses a draft without both.
 
    Leave every `say` and `saySub` out. This tool runs tools/vocalize.js at the
    end, which writes them from the plain text word for word, and fails loudly
@@ -76,7 +84,27 @@ function validate(item, existing, draft) {
      words, so an invented one would be the single genuinely dishonest thing
      in a game that is otherwise openly made up. */
   if (l.q && /^(TODO|תוסיף|חסר)/i.test(l.q.t || '')) bad.push('level.q.t is a placeholder');
-  const spoken = [l.say, l.saySub].concat((item.bulletin || []).map(b => b.say));
+  /* Every news mission owes the player one thing the tower cannot do. That is
+     not a style note, it is the reason the mission is worth the week: without
+     it this is floor 111 with a red border. `twist` declares it — reach the
+     goal, become something else, and the goal moves to the far side — and
+     `outro` is the punchline read out at the end. Both are required. */
+  const tw = l.twist;
+  if (!tw) {
+    bad.push('level.twist missing: a news mission must do one thing a floor cannot');
+  } else {
+    for (const k of ['avatar', 'goal', 'goalName', 'announce']) {
+      if (!str(tw, k)) bad.push(`level.twist.${k} missing`);
+    }
+    if (tw.goal && l.goal && tw.goal === l.goal) bad.push('level.twist.goal repeats the first goal');
+    if (tw.bonus !== undefined && !(tw.bonus >= 0 && tw.bonus <= 180)) {
+      bad.push('level.twist.bonus must be 0..180 seconds');
+    }
+  }
+  if (!l.outro || !str(l.outro, 'text', 8)) bad.push('level.outro.text missing: no closing line');
+
+  const spoken = [l.say, l.saySub, l.outro && l.outro.say, tw && tw.sayAnnounce]
+    .concat((item.bulletin || []).map(b => b.say));
   if (draft && spoken.some(Boolean)) {
     bad.push('leave say/saySub out of a draft — tools/vocalize.js writes them');
   }

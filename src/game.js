@@ -1038,6 +1038,7 @@
     return { map, roomMask, start, spawns, goal, desks, coins, coinQuota, time, lockFixes,
              type: story.type, tag: goalTag(index), kit: kitFor(index),
              avatar: story.avatar, goalName: story.goalName || GOAL_NAME[story.type],
+             twist: (LEVELS[index] && LEVELS[index].twist) || null,
              scene: sceneName, palette: scene.pal, roomColor: scene.room, corrColor: scene.corr,
              screens, screenAt, wallTexts, textAt };
   }
@@ -1213,6 +1214,7 @@
     timeLeft: 0,
     camX: 0, camY: 350, scale: 0.13, buildingAlpha: 1, introT: 0, introDur: 0,
     newsAt: 0,                  // which bulletin the news screen is showing
+    twisted: false,             // has this mission's twist already been taken
     cast: null,                 // the staged scene, from the briefing until they sit
     shake: 0, globalTime: 0,
     brief: { t: 0, shots: [], progress: 0, tourBase: -1, words: [], textLen: 1, wordIndex: -2 },
@@ -1360,6 +1362,7 @@
     // you cannot be caught before you have had a chance to move
     S.player = { x: f.start.x, y: f.start.y, animY: 0, invuln: ARRIVAL_GRACE };
     S.slaps = 0; S.partsGiven = 0; S.coinsGot = 0; S.chadSlapped = false;
+    S.twisted = false;
     S.combo = 0; S.comboTimer = 0;
     S.particles = []; S.texts = []; S.slapFx = [];
     S.timeLeft = f.time;
@@ -1891,6 +1894,50 @@
     }
   }
 
+  /* ======================= the twist =======================
+     Every breaking-news mission owes the player one thing the tower cannot do,
+     and `twist` is how a mission declares it instead of coding it. Reaching
+     the goal with the objectives done normally clears the floor. A mission
+     with an untaken twist spends that arrival on the twist instead: you take
+     the thing, you become it, and the goal moves to the far side of the floor.
+     Then the next arrival clears, as usual. */
+  function farthestTile(fromX, fromY) {
+    // the player can open doors, so the far side has to be measured through
+    // them — otherwise the new goal lands behind the nearest locked one
+    const d = distanceField(S.map, fromX, fromY, true);
+    let best = null, far = -1;
+    for (let y = 1; y < MAP_H - 1; y++) {
+      for (let x = 1; x < MAP_W - 1; x++) {
+        const v = S.map[y][x];
+        if (v !== TILE.FLOOR && v !== TILE.ROOM) continue;
+        if (d[y][x] === Infinity || d[y][x] <= far) continue;
+        far = d[y][x]; best = { x, y };
+      }
+    }
+    return best ? { spot: best, steps: far } : null;
+  }
+
+  function applyTwist(atX, atY) {
+    const f = S.floor, tw = f.twist;
+    const far = farthestTile(atX, atY);
+    if (!far) { levelCleared(); return; }     // nowhere to go: just finish
+
+    S.map[atY][atX] = floorTileUnder(atX, atY);     // the thing is yours now
+    S.map[far.spot.y][far.spot.x] = GOAL_TILE[f.type];
+    f.goal = far.spot;
+    f.tag = tw.goal;
+    f.goalName = tw.goalName;
+    f.avatar = tw.avatar;                           // ...and you are it
+    S.twisted = true;
+    S.timeLeft += tw.bonus || 45;                   // the second half is a drive
+    Audio.part();
+    award(300, atX, atY, tw.avatar + ' ' + tw.goal, '#ffd166');
+    addParticles(atX, atY, '#ffd166', 40);
+    addText(atX, atY - 1, tw.announce, '#fff');
+    if (tw.announce) Narrator.speak(tw.sayAnnounce || tw.announce);
+    refreshStatus();
+  }
+
   function levelCleared() {
     S.state = 'clear';
     S.cast = null;
@@ -1913,10 +1960,30 @@
       `<div class="good">🛡️ בונוס ללא אזהרות: +${strikeBonus}</div>`,
       `<div>📈 ניקוד מצטבר: <b>${S.score}</b></div>`
     ].join('');
+    /* A news mission signs off with its own punchline before the real quote.
+       Both are read aloud as one script, so the read-along runs straight
+       through from the joke into the thing somebody actually said. */
+    const outro = (LEVELS[S.level] || {}).outro;
+    const oBox = $('clearOutro');
+    oBox.hidden = !outro;
+    oBox.textContent = '';
+    let words = [], script = '';
+    if (outro) {
+      const say = outro.say || outro.text;
+      const starts = wordStarts(say);
+      splitWords(oBox, outro.text).forEach((w, k) => {
+        words.push({ el: w.el, start: starts[k] === undefined ? w.start : starts[k] });
+      });
+      script = say + ' ';
+    }
     const q = QUOTES[S.level % QUOTES.length];
     if (isNews(S.level)) track('news-cleared', { news: NEWS[S.level - FLOORS].id });
     else track('floor-cleared', { floor: S.level + 1 });
     const quote = showQuote($('clearQuote'), q);
+    const base = script.length;
+    words = words.concat(quote.words.map(w => ({ el: w.el, start: base + w.start })));
+    script += quote.script;
+    const readAlong = { words, spoken: { starts: words.map(w => w.start), length: script.length } };
     $('btnNext').textContent = isNews(S.level) ? '📺 חזרה לחדשות'
       : S.level >= FLOORS - 1 ? 'לסיום הקריירה' : 'לקומה הבאה';
     refreshStatus();
@@ -1925,7 +1992,7 @@
       showScreen('clear');
       // the quote is the punchline of the floor, so it is read out loud —
       // name and year included — with the words lighting up as they are said
-      Narrator.speak(quote.script, p => highlightWords(quote.words, quote.spoken, p));
+      Narrator.speak(script, p => highlightWords(readAlong.words, readAlong.spoken, p));
     }, 900);
   }
 
@@ -2031,8 +2098,11 @@
         addParticles(nx, ny, S.floor.kit.hue, 10);
         break;
       case TILE.ELEVATOR: case TILE.MEETING: case TILE.HR:
-        if (objectives().ready) levelCleared();
-        else {
+        if (objectives().ready) {
+          // a mission whose twist is still untaken spends this arrival on it
+          if (S.floor.twist && !S.twisted) applyTwist(nx, ny);
+          else levelCleared();
+        } else {
           Audio.deny();
           addText(nx, ny, 'עוד לא סיימת!', '#ff5555');
         }
@@ -3335,7 +3405,7 @@
                       stopNarration: Narrator.stop,
                       view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,
                       SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel,
-                      NEWS, openNews, newsIndex, isNews, renderNewsPanel };
+                      NEWS, openNews, newsIndex, isNews, renderNewsPanel, tryMove };
 
   $('btnShareClear').addEventListener('click', e => shareGame(e.currentTarget));
   $('btnShareOver').addEventListener('click', e => shareGame(e.currentTarget));

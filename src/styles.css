@@ -563,3 +563,20 @@ img.brand-logo { height: 14px; width: auto; vertical-align: -2px; }
   .news-feed { max-width: 92vw; }
   .news-feed .said-text { font-size: 13.5px; }
 }
+
+/* the news mission's own punchline, read out before the real quote */
+.outro {
+  max-width: 520px;
+  margin: 0 auto 8px;
+  padding: 7px 14px;
+  border-inline-start: 3px solid var(--red);
+  background: rgba(255, 60, 60, 0.08);
+  border-radius: 6px;
+  text-align: right;
+  font-size: 14.5px;
+  color: #ffd9d9;
+}
+.outro[hidden] { display: none; }
+.outro .w { transition: color 0.12s ease, text-shadow 0.12s ease; }
+.outro .w.said { color: #fff; }
+.outro .w.now { color: #fff; font-weight: bold; text-shadow: 0 0 12px rgba(255, 90, 90, 0.95); }

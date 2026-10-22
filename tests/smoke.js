@@ -1176,6 +1176,63 @@ function serve() {
   check('and still does on a floor where the desk also carries a ✓ plate',
     onFloppy.age === 'paper' && onFloppy.top > 300, JSON.stringify(onFloppy));
 
+  /* ---- the briefing stages a room, and the room empties into the desks ---- */
+  const cast = await page.evaluate(() => {
+    const R = window.RelWorld, TILE = R.TILE;
+    const bad = [], styles = {};
+    let minCrowd = 99;
+    for (let i = 0; i < R.FLOORS; i++) {
+      R.openBriefing(i, true); R.stopNarration();
+      const c = R.state.cast, map = R.state.floor.map;
+      if (!c) { bad.push(`L${i + 1}: no scene staged`); continue; }
+      styles[c.style] = (styles[c.style] || 0) + 1;
+      const crowd = c.actors.filter(a => a.seat);
+      minCrowd = Math.min(minCrowd, crowd.length);
+      const seen = new Set();
+      for (const a of c.actors) {
+        const t = map[a.sy][a.sx];
+        // nobody may be staged inside a wall, a desk or a doorway
+        if (t !== TILE.FLOOR && t !== TILE.ROOM) bad.push(`L${i + 1}: actor on tile ${t}`);
+        const k = a.sy * 20 + a.sx;
+        if (seen.has(k)) bad.push(`L${i + 1}: two actors on one tile`);
+        seen.add(k);
+        if (a.seat && !R.isDesk(map[a.seat.y][a.seat.x])) bad.push(`L${i + 1}: seat is not a desk`);
+      }
+      // ...and every desk they vacated has to be given back
+      R.startLevel();
+      R.state.introT = 1e6;
+      if (c.empty.size === 0) continue;
+    }
+    return { bad, styles, minCrowd };
+  });
+  check('every floor stages a scene, and nobody is staged inside the furniture',
+    cast.bad.length === 0 && cast.minCrowd >= 4 &&
+    Object.keys(cast.styles).length === 3,
+    `${JSON.stringify(cast.styles)} minCrowd=${cast.minCrowd} ${cast.bad.slice(0, 3).join(' | ')}`);
+
+  /* The desks they left stand empty while they are at the stand-up. If the walk
+     ever failed to finish, those desks would stay empty for the whole floor —
+     so drive a real dive-in and check every seat is handed back. */
+  const seated = await page.evaluate(() => {
+    const R = window.RelWorld;
+    R.openBriefing(0, true); R.stopNarration();
+    const before = R.state.cast.empty.size;
+    R.startLevel();
+    return new Promise(resolve => {
+      const t0 = Date.now();
+      const tick = () => {
+        if (R.state.state === 'playing' || Date.now() - t0 > 8000) {
+          resolve({ before, left: R.state.cast ? R.state.cast.empty.size : 0,
+                    cleared: R.state.cast === null, state: R.state.state });
+        } else setTimeout(tick, 100);
+      };
+      tick();
+    });
+  });
+  check('and every desk they left is filled again by the time you take control',
+    seated.before >= 4 && seated.left === 0 && seated.cleared && seated.state === 'playing',
+    JSON.stringify(seated));
+
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await browser.close();

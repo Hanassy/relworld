@@ -1190,7 +1190,8 @@
     rivals: [], chadSlapped: false,
     slaps: 0, partsGiven: 0, coinsGot: 0,
     timeLeft: 0,
-    camX: 0, camY: 350, scale: 0.13, buildingAlpha: 1, introT: 0,
+    camX: 0, camY: 350, scale: 0.13, buildingAlpha: 1, introT: 0, introDur: 0,
+    cast: null,                 // the staged scene, from the briefing until they sit
     shake: 0, globalTime: 0,
     brief: { t: 0, shots: [], progress: 0, tourBase: -1, words: [], textLen: 1, wordIndex: -2 },
     introFrom: { x: 0, y: 350, scale: 0.13, alpha: 1 },
@@ -1342,6 +1343,261 @@
     return f;
   }
 
+  /* ======================= the briefing cast =======================
+     The briefing used to pan across an empty floor plan while the mission was
+     read out loud. What it shows now is the room a minute before the mission
+     starts: a stand-up lined up beside the manager, a presentation with
+     somebody at the screen and the rest round the table, a huddle at the
+     racks. Then you press "לרדת לשטח" and they walk to their desks.
+
+     None of this is new artwork. It is the same emoji the floor already draws,
+     on the same isometric grid, so a staged scene costs a formation and a few
+     lines of chatter instead of a sprite sheet. */
+
+  const STAGE_FOR = { office: 'standup', board: 'present', cinema: 'present',
+                      court: 'present', lab: 'huddle', bank: 'huddle' };
+
+  /* Where everyone stands, as tile offsets from the anchor. The lead stands on
+     the anchor itself and the crowd faces them. In this projection a run along
+     +y goes down-left across the screen, which is what reads as "a row". */
+  const FORMATION = {
+    standup: { crowd: [[2, -2], [2, -1], [2, 0], [2, 1], [2, 2], [3, -2], [3, 2]] },
+    present: { crowd: [[2, -2], [2, 2], [3, -2], [3, 2], [4, -1], [4, 1]], table: [3, 0] },
+    huddle:  { crowd: [[1, -2], [2, -1], [2, 1], [1, 2], [-1, 1], [-1, -1]] }
+  };
+
+  /* What they are saying. Short enough to read at briefing zoom, and timed so
+     the bubbles come and go instead of all shouting at once. */
+  const CHATTER = {
+    standup: ['סטטוס?', 'בלוקר', 'מחר', 'כמעט', 'תלוי בהם', 'עוד ספרינט', 'בדמו'],
+    present: ['שקף הבא', 'סינרגיה', 'ברבעון', 'שאלה', 'ROI', 'בגדול', 'נסנכרן'],
+    huddle:  ['נפל', 'ריסטרט', 'בלוגים', 'לא אני', 'פרודקשן', 'אצלי עובד', 'מי דחף?']
+  };
+  const LEAD_LINE = { standup: 'בוקר טוב', present: 'שקף 1', huddle: 'מי נגע?' };
+
+  /** A free tile at or near (x, y). Formations are laid out on an ideal grid
+      and then nudged onto whatever floor the generator actually produced. */
+  function freeNear(map, taken, x, y) {
+    const ok = (ax, ay) => ax > 0 && ay > 0 && ax < MAP_W - 1 && ay < MAP_H - 1 &&
+      (map[ay][ax] === TILE.FLOOR || map[ay][ax] === TILE.ROOM) &&
+      !taken.has(ay * MAP_W + ax);
+    if (ok(x, y)) return { x, y };
+    for (let r = 1; r <= 3; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          if (ok(x + dx, y + dy)) return { x: x + dx, y: y + dy };
+        }
+      }
+    }
+    return null;
+  }
+
+  /** Desks grouped into teams, biggest first, so a formation is staged beside
+      a crowd rather than beside one chair. Shared with the briefing camera. */
+  function deskClusters(map) {
+    const clusters = [];
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        if (!isDesk(map[y][x])) continue;
+        const c = clusters.find(c => Math.abs(c.x - x) <= 4 && Math.abs(c.y - y) <= 4);
+        if (c) { c.x = (c.x * c.n + x) / (c.n + 1); c.y = (c.y * c.n + y) / (c.n + 1); c.n++; }
+        else clusters.push({ x, y, n: 1 });
+      }
+    }
+    return clusters.sort((a, b) => b.n - a.n);
+  }
+
+  /** Stage the people for this floor: who stands where, what they are saying,
+      and which desk each of them walks to once the mission starts. */
+  function buildCast(f) {
+    const style = STAGE_FOR[f.scene] || 'standup';
+    const form = FORMATION[style];
+    const map = f.map;
+
+    /* A presentation belongs in front of the screen the floor already draws.
+       Anything else belongs beside the biggest team on the floor. */
+    const big = deskClusters(map)[0];
+    let ax, ay;
+    if (style === 'present' && f.screens && f.screens.length) {
+      const sc = f.screens[Math.floor(f.screens.length / 2)];
+      ax = sc.x + 1; ay = sc.y;
+    } else if (big) {
+      ax = Math.round(big.x) - 2; ay = Math.round(big.y);
+    } else {
+      ax = f.start.x; ay = f.start.y;
+    }
+
+    const taken = new Set();
+    const lead = freeNear(map, taken, ax, ay);
+    if (!lead) return null;
+    taken.add(lead.y * MAP_W + lead.x);
+
+    // the desks they will take when it is over, nearest to the huddle first
+    const seats = [];
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) if (isDesk(map[y][x])) seats.push({ x, y });
+    }
+    if (!seats.length) return null;
+    seats.sort((a, b) => Math.hypot(a.x - lead.x, a.y - lead.y) -
+                         Math.hypot(b.x - lead.x, b.y - lead.y));
+
+    /* The crowd is whoever this floor's year puts at a desk: clerks before the
+       computer arrived, developers after. Same rule the desks themselves use,
+       so nobody changes species on the walk over. */
+    const paper = f.kit.age === 'paper' || f.kit.age === 'arrival';
+    const glyph = paper ? '🧑‍💼' : '👨‍💻';
+    const chat = CHATTER[style];
+
+    const actors = [{
+      x: lead.x, y: lead.y, sx: lead.x, sy: lead.y, glyph: '🧑‍💼', lead: true,
+      say: LEAD_LINE[style], at: 0, seat: null
+    }];
+    form.crowd.forEach((off, i) => {
+      if (i >= seats.length) return;
+      const spot = freeNear(map, taken, lead.x + off[0], lead.y + off[1]);
+      if (!spot) return;
+      taken.add(spot.y * MAP_W + spot.x);
+      actors.push({
+        x: spot.x, y: spot.y, sx: spot.x, sy: spot.y, glyph, lead: false,
+        say: chat[i % chat.length], at: 500 + i * 850, seat: seats[i]
+      });
+    });
+    if (actors.length < 2) return null;
+
+    let table = null;
+    if (form.table) {
+      const t = freeNear(map, new Set(), lead.x + form.table[0], lead.y + form.table[1]);
+      if (t) table = t;
+    }
+    const screen = (style === 'present' && f.screens && f.screens.length)
+      ? f.screens[Math.floor(f.screens.length / 2)] : null;
+
+    // the desks still standing empty, so the floor does not draw a worker at a
+    // desk whose worker is currently at the stand-up
+    const empty = new Set();
+    for (const a of actors) if (a.seat) empty.add(a.seat.y * MAP_W + a.seat.x);
+
+    return { style, actors, table, screen, empty, lead, walk: 0 };
+  }
+
+  /** Walk the cast to their desks. `k` runs 0..1 across the dive-in, and each
+      actor leaves a beat after the one before so it reads as a room emptying
+      rather than a formation teleporting. */
+  function updateCast(k) {
+    const c = S.cast;
+    if (!c) return;
+    c.walk = k;
+    const crowd = c.actors.filter(a => a.seat);
+    crowd.forEach((a, i) => {
+      const lag = i * 0.055;
+      const e = smooth(clamp((k - lag) / Math.max(0.2, 1 - lag), 0, 1));
+      a.x = a.sx + (a.seat.x - a.sx) * e;
+      a.y = a.sy + (a.seat.y - a.sy) * e;
+      a.arrived = e >= 1;
+      if (a.arrived) c.empty.delete(a.seat.y * MAP_W + a.seat.x);
+    });
+  }
+
+  /** One of the staged extras, with their line above their head. */
+  function drawActor(a) {
+    const px = cx0 + (a.x - a.y) * TW / 2 - S.camX;
+    const py = cy0 + (a.x + a.y) * TH / 2 - S.camY;
+    const walking = S.cast.walk > 0 && a.seat && !a.arrived;
+    // a walk cycle costs one sine: a bob, and a lean into the direction of travel
+    const bob = walking ? Math.abs(Math.sin(S.globalTime * 0.35)) * 5
+                        : Math.sin(S.globalTime * 0.08 + a.sx) * 1.5;
+    const fade = a.arrived ? 0 : 1;
+    if (fade <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = fade;
+    groundShadow(px, py, 11);
+    ctx.font = (a.lead ? '27px' : '24px') + ' Arial';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.fillText(a.glyph, px, py - 6 - bob);
+    ctx.restore();
+    if (walking || S.state !== 'briefing' || !a.say) return;
+    // the line fades in on its own beat and then holds, so the room fills up
+    // with talk over the first few seconds instead of all at once
+    const age = S.brief.t - a.at;
+    if (age < 0) return;
+    chatBubble(px, py - 40 - bob, a.say, clamp(age / 400, 0, 1) * (a.lead ? 1 : 0.9));
+  }
+
+  /** A line of speech. Warm and small, so it never competes with the cyan the
+      goal sign owns. */
+  function chatBubble(x, y, text, alpha) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold 11px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(text).width + 14;
+    ctx.fillStyle = 'rgba(250,247,238,0.94)';
+    ctx.strokeStyle = 'rgba(40,32,18,0.55)';
+    ctx.lineWidth = 1;
+    roundRectPath(x - w / 2, y - 9, w, 18, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - 4, y + 8); ctx.lineTo(x + 4, y + 8); ctx.lineTo(x, y + 15);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#20180c';
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  }
+
+  /** The meeting table: the same isometric diamond a desk is built from, four
+      tiles wide, with the things that are always on one. */
+  function drawMeetingTable(x, y) {
+    const px = cx0 + (x - y) * TW / 2 - S.camX;
+    const py = cy0 + (x + y) * TH / 2 - S.camY;
+    const z = 13;
+    groundShadow(px, py + 6, 44);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(px, py - z - 10); ctx.lineTo(px + 46, py - z + 13);
+    ctx.lineTo(px, py - z + 36); ctx.lineTo(px - 46, py - z + 13);
+    ctx.closePath();
+    ctx.fillStyle = '#7c5c3f';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.font = '13px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('📄', px - 20, py - z + 18);
+    ctx.fillText('☕', px + 4, py - z + 9);
+    ctx.fillText('📄', px + 22, py - z + 20);
+    ctx.restore();
+  }
+
+  /** The projector beam, from whoever is presenting to the screen the floor
+      already has on its wall. Pure translucency over the floor, no new art. */
+  function drawProjector() {
+    const c = S.cast;
+    if (!c || !c.screen || c.walk > 0) return;
+    const a = c.actors[0];
+    const ax = cx0 + (a.x - a.y) * TW / 2 - S.camX;
+    const ay = cy0 + (a.x + a.y) * TH / 2 - S.camY - 18;
+    const sx = cx0 + (c.screen.x - c.screen.y) * TW / 2 - S.camX;
+    const sy = cy0 + (c.screen.x + c.screen.y) * TH / 2 - S.camY - ZH / 2;
+    const flick = 0.1 + 0.05 * Math.sin(S.globalTime * 0.3);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createLinearGradient(ax, ay, sx, sy);
+    g.addColorStop(0, `rgba(200,230,255,${flick})`);
+    g.addColorStop(1, 'rgba(200,230,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(sx - 26, sy - 16);
+    ctx.lineTo(sx + 26, sy + 16);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
   /** Camera shots for the briefing: the whole floor first, then the people. */
   function buildShots(f) {
     const iso = (x, y) => ({ x: (x - y) * TW / 2, y: (x + y) * TH / 2 });
@@ -1349,18 +1605,17 @@
     const wide = { x: w.camX, y: w.camY, scale: w.scale };
     const shots = [wide];
 
-    // group desks into crowds, so the camera frames a team and not one chair
-    const clusters = [];
-    for (let y = 0; y < MAP_H; y++) {
-      for (let x = 0; x < MAP_W; x++) {
-        if (!isDesk(f.map[y][x])) continue;
-        const c = clusters.find(c => Math.abs(c.x - x) <= 4 && Math.abs(c.y - y) <= 4);
-        if (c) { c.x = (c.x * c.n + x) / (c.n + 1); c.y = (c.y * c.n + y) / (c.n + 1); c.n++; }
-        else clusters.push({ x, y, n: 1 });
-      }
+    /* The staged scene is the point of the briefing now, so the camera goes
+       there first and sits close enough to read the speech bubbles. */
+    if (S.cast) {
+      const l = S.cast.lead;
+      shots.push(Object.assign(iso(l.x + 1.5, l.y), { scale: 2.0 }));
+      shots.push(Object.assign(iso(l.x + 2, l.y), { scale: 1.8 }));
     }
-    clusters.sort((a, b) => b.n - a.n);
-    for (const c of clusters.slice(0, 2)) shots.push(Object.assign(iso(c.x, c.y), { scale: 1.5 }));
+    // then the teams, framed as crowds rather than one chair at a time
+    for (const c of deskClusters(f.map).slice(0, 2)) {
+      shots.push(Object.assign(iso(c.x, c.y), { scale: 1.5 }));
+    }
     if (S.rivals.length) shots.push(Object.assign(iso(S.rivals[0].x, S.rivals[0].y), { scale: 1.75 }));
     // close on the exit and hold it: the last thing you see is where to go
     const goalShot = Object.assign(iso(f.goal.x, f.goal.y), { scale: 1.55 });
@@ -1540,6 +1795,7 @@
     S.scoreAtStart = S.score;
 
     const f = prepareFloor();
+    S.cast = buildCast(f);          // who is standing where while this is read
     const story = STORY[S.level];
     $('bTitle').textContent = story.title;
     $('bSubtitle').textContent = story.subtitle;
@@ -1569,8 +1825,21 @@
     prepareFloor();
     S.score = S.scoreAtStart;
     // the briefing already showed the floor: dive in from wherever it ended up
+    /* With a staged scene, cut back to the room before diving. The briefing
+       ends on the exit, which is the right last thing to see but the wrong
+       place to watch from: the walk to the desks happens where they are
+       standing, and a dive that starts at the exit shows none of it. */
+    if (S.cast) {
+      const l = S.cast.lead;
+      S.camX = (l.x + 1.5 - l.y) * TW / 2;
+      S.camY = (l.x + 1.5 + l.y) * TH / 2;
+      S.scale = 1.9 / (smallScreen ? 1.5 : 1);
+      S.buildingAlpha = 0;
+    }
     S.introFrom = { x: S.camX, y: S.camY, scale: S.scale, alpha: S.buildingAlpha };
     S.introT = 0;
+    // long enough to watch them reach their desks, when there is anyone to watch
+    S.introDur = S.cast ? 2600 : INTRO_DUR;
     S.state = 'intro';
     lastShownSecond = -1; lastTaskHTML = '';
     updateHUD();
@@ -1600,6 +1869,7 @@
 
   function levelCleared() {
     S.state = 'clear';
+    S.cast = null;
     Audio.win();
     const timeBonus = Math.round(S.timeLeft) * 10;
     const strikeBonus = (MAX_STRIKES - S.strikes) * 250;
@@ -1636,6 +1906,7 @@
   function gameOver(reason, victory) {
     if (S.state === 'over') return;
     S.state = 'over';
+    S.cast = null;
     S.scoreSaved = false;
     if (victory) Audio.win(); else Audio.fired();
     if (S.score > bestScore) { bestScore = S.score; store.set('rel_best', bestScore); }
@@ -1658,6 +1929,7 @@
     Narrator.stop();
     S.state = 'menu';
     S.floor = null;
+    S.cast = null;
     S.camX = 0; S.camY = 350; S.scale = 0.13; S.buildingAlpha = 1;
     renderMenu();
     showScreen('menu');
@@ -1925,8 +2197,13 @@
 
     if (S.state === 'intro') {
       S.introT += dt;
-      const k = clamp(S.introT / INTRO_DUR, 0, 1);
-      const e = smooth(k);
+      const k = clamp(S.introT / (S.introDur || INTRO_DUR), 0, 1);
+      /* The dive waits for them. The camera holds on the room for the first
+         stretch while they walk to their desks, and only then flies to the
+         player — cutting away mid-walk wastes the one shot that shows it. */
+      const hold = S.cast ? 0.62 : 0;
+      updateCast(hold ? clamp(k / hold, 0, 1) : 1);
+      const e = smooth(hold ? clamp((k - hold) / (1 - hold), 0, 1) : k);
       const from = S.introFrom;
       const target = (inRoom(p.x, p.y) ? 2.3 : 1.25) / (smallScreen ? 1.5 : 1);
       S.scale = from.scale + e * (target - from.scale);
@@ -1934,7 +2211,7 @@
       S.camY = from.y + e * (pcy - from.y);
       S.buildingAlpha = from.alpha * (1 - e);
       clampCameraToFloor();
-      if (k >= 1) { S.state = 'playing'; S.buildingAlpha = 0; showScreen(null); }
+      if (k >= 1) { S.state = 'playing'; S.buildingAlpha = 0; S.cast = null; showScreen(null); }
       return;
     }
 
@@ -2462,8 +2739,12 @@
               ctx.restore();
             }
             const hop = sad ? 0 : Math.max(0, Math.sin(S.globalTime * 0.25) * 4);
-            ctx.font = '24px Arial'; ctx.fillStyle = '#fff';
-            ctx.fillText(sad ? '😭' : paper ? '🧑‍💼' : '👨‍💻', pX, pY - 10 - hop);
+            // ...and nobody is sitting here while they are all at the stand-up
+            const away = S.cast && S.cast.empty.has(y * MAP_W + x);
+            if (!away) {
+              ctx.font = '24px Arial'; ctx.fillStyle = '#fff';
+              ctx.fillText(sad ? '😭' : paper ? '🧑‍💼' : '👨‍💻', pX, pY - 10 - hop);
+            }
             if (paper) {
               /* Drawn after the worker: behind them the stack was invisible,
                  which is the bug the installed part used to have too. */
@@ -2496,6 +2777,15 @@
               ctx.fillStyle = '#f2fff7'; ctx.font = 'bold 9px Arial';
               ctx.fillText(tag, pX + 8, pY + 10);
               ctx.restore();
+            }
+          }
+
+          if (S.cast) {
+            if (S.cast.table && S.cast.table.x === x && S.cast.table.y === y) {
+              drawMeetingTable(x, y);
+            }
+            for (const a of S.cast.actors) {
+              if (Math.round(a.x) === x && Math.round(a.y) === y) drawActor(a);
             }
           }
 
@@ -2562,6 +2852,8 @@
         if (--S.slapFx[i].timer <= 0) S.slapFx.splice(i, 1);
       }
     }
+
+    if (S.cast) drawProjector();
 
     if (S.buildingAlpha > 0.01) {
       ctx.globalAlpha = S.buildingAlpha;
@@ -2912,7 +3204,7 @@
   window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS,
                       state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES, reachableWithKeys, openBriefing, levelCleared, EPIGRAPH,
                       narrationProgress,
-                      startCareer, shareGame, BRAND, track, BUILD, checkForUpdate,
+                      startCareer, startLevel, shareGame, BRAND, track, BUILD, checkForUpdate,
                       stopNarration: Narrator.stop,
                       view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,
                       SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel };

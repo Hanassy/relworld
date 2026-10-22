@@ -34,6 +34,7 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const LEVELS = path.join(ROOT, 'src/levels.js');
+const NEWS = path.join(ROOT, 'src/news.js');
 const DICT = JSON.parse(fs.readFileSync(path.join(__dirname, 'niqqud.json'), 'utf8'));
 
 const NIQQUD = /[֑-ׇ]/g;
@@ -70,30 +71,60 @@ function vocalize(text) {
   return { out, unknown };
 }
 
+const unknown = new Set();
+const misaligned = [];
+const words = t => (String(t).match(/\S+/g) || []).length;
+let changed = 0;
+
+/** Points one plain/spoken pair in place, and records anything wrong with it.
+    Every string the narrator reads goes through here, whether it belongs to a
+    career floor, a news mission or a line in a news bulletin. */
+function pair(obj, plain, spoken, label) {
+  if (obj[plain] === undefined) return;
+  const r = vocalize(obj[plain]);
+  r.unknown.forEach(w => unknown.add(w));
+  if (r.out !== obj[spoken]) changed++;
+  obj[spoken] = r.out;
+  // the read-along maps word N of one onto word N of the other, so a mismatch
+  // here would silently light up the wrong word
+  if (words(obj[plain]) !== words(obj[spoken])) {
+    misaligned.push(`${label}: ${words(obj[plain])} shown vs ${words(obj[spoken])} spoken`);
+  }
+}
+
+/** Reads one data file, points everything a narrator will read in it, and
+    hands back the source with the array re-serialised in its place. */
+function processFile(file, marker, order, walk) {
+  const src = fs.readFileSync(file, 'utf8');
+  const re = new RegExp(`(const ${marker} =\\n)(\\[[\\s\\S]*?\\n\\]|\\[[\\s\\S]*?\\n {2}\\])(;\\n)`);
+  const m = re.exec(src);
+  if (!m) throw new Error(`could not find ${marker} in ${path.basename(file)}`);
+  const data = JSON.parse(m[2]);
+  data.forEach(walk);
+  const pick = o => {
+    const out = {};
+    for (const k of order) if (o[k] !== undefined) out[k] = o[k];
+    return out;
+  };
+  return { src, m, data, pick };
+}
+
 function main() {
   const check = process.argv.includes('--check');
-  const src = fs.readFileSync(LEVELS, 'utf8');
-  const m = /(const REL_LEVELS =\n)(\[[\s\S]*?\n {2}\])(;\n)/.exec(src);
-  if (!m) throw new Error('could not find the level data in src/levels.js');
-  const data = JSON.parse(m[2]);
-
-  const unknown = new Set();
-  const misaligned = [];
-  const words = t => (String(t).match(/\S+/g) || []).length;
-  let changed = 0;
-  data.forEach((level, i) => {
-    for (const [plain, spoken] of [['text', 'say'], ['sub', 'saySub']]) {
-      const r = vocalize(level[plain]);
-      r.unknown.forEach(w => unknown.add(w));
-      if (r.out !== level[spoken]) changed++;
-      level[spoken] = r.out;
-      // the read-along maps word N of one onto word N of the other, so a
-      // mismatch here would silently light up the wrong word
-      if (words(level[plain]) !== words(level[spoken])) {
-        misaligned.push(`L${i + 1}.${plain}: ${words(level[plain])} shown vs ${words(level[spoken])} spoken`);
-      }
-    }
+  const lv = processFile(LEVELS, 'REL_LEVELS', [], (level, i) => {
+    pair(level, 'text', 'say', `L${i + 1}.text`);
+    pair(level, 'sub', 'saySub', `L${i + 1}.sub`);
   });
+  const data = lv.data, src = lv.src, m = lv.m;
+
+  /* The news file holds the same mission shape plus the broadcast that comes
+     before it, so the anchor and the reporter are pointed too. */
+  const news = processFile(NEWS, 'REL_NEWS', ['id', 'date', 'headline', 'blurb', 'source', 'bulletin'],
+    (item, i) => {
+      pair(item.level, 'text', 'say', `N${i + 1}.text`);
+      pair(item.level, 'sub', 'saySub', `N${i + 1}.sub`);
+      (item.bulletin || []).forEach((b, j) => pair(b, 'text', 'say', `N${i + 1}.bulletin[${j}]`));
+    });
 
   if (misaligned.length) {
     console.error(`${misaligned.length} missions do not line up word for word:`);
@@ -109,7 +140,7 @@ function main() {
   if (check) {
     console.log(changed
       ? `${changed} spoken fields are stale — run node tools/vocalize.js`
-      : `all ${data.length} missions have an up-to-date, word-aligned spoken half`);
+      : `all ${data.length + news.data.length} missions have an up-to-date, word-aligned spoken half`);
     process.exit(changed ? 1 : 0);
   }
 
@@ -123,7 +154,16 @@ function main() {
   let body = JSON.stringify(ordered, null, 2)
     .split('\n').map(line => (line.trim() ? '  ' + line : line)).join('\n').replace(/^ {2}/, '');
   fs.writeFileSync(LEVELS, src.slice(0, m.index + m[1].length) + body + src.slice(m.index + m[1].length + m[2].length));
-  console.log(`vocalised ${data.length} missions (${changed} spoken fields rewritten)`);
+
+  const nbody = JSON.stringify(news.data.map(n => {
+    const o = news.pick(n);
+    o.level = ORDER.reduce((a, k) => (n.level[k] !== undefined && (a[k] = n.level[k]), a), {});
+    return o;
+  }), null, 2);
+  fs.writeFileSync(NEWS, news.src.slice(0, news.m.index + news.m[1].length) + nbody +
+                         news.src.slice(news.m.index + news.m[1].length + news.m[2].length));
+  console.log(`vocalised ${data.length} missions and ${news.data.length} news bulletins ` +
+              `(${changed} spoken fields rewritten)`);
 }
 
 main();

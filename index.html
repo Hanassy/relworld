@@ -76,6 +76,13 @@
       </div>
     </div>
 
+    <!-- ===== משימת השבוע: מה שקרה באמת בעולם הטכנולוגיה ===== -->
+    <div id="newsPanel" class="panel news-panel" hidden>
+      <h3><span class="live-dot"></span> 📺 חדשות מתפרצות</h3>
+      <p class="news-intro">משימה אחת בשבוע, על פי מה שקרה באמת. לא חלק מהקריירה — אפשר לשחק בכל אחת מהן בכל רגע.</p>
+      <ul id="newsList"></ul>
+    </div>
+
     <div class="select-label">בחר קומה (מתוך מה שפתחת):</div>
     <div id="levelSelectCont"></div>
 
@@ -106,6 +113,23 @@
     <div id="openingQuote" class="quote"></div>
     <button type="button" class="main-btn" id="btnEnterBuilding">היכנס לבניין</button>
     <p class="disclaimer" id="openingDisclaimer"></p>
+  </div>
+
+  <!-- ===== מהדורת חדשות: הודעה לעיתונות לפני התדריך ===== -->
+  <div id="newsScreen" class="overlayScreen newsroom" hidden>
+    <div class="news-bar">
+      <span class="live-badge"><span class="live-dot"></span> שידור חי</span>
+      <span id="newsDate" class="news-date"></span>
+    </div>
+    <h1 id="newsHeadline">חדשות מתפרצות</h1>
+    <div id="newsFeed" class="news-feed" aria-live="off"></div>
+    <p id="newsSource" class="news-source"></p>
+    <div class="btn-row">
+      <button type="button" class="main-btn" id="btnNewsGo">לתדריך המשימה</button>
+      <button type="button" class="main-btn ghost" id="btnNewsReplay">🔁 הקרא שוב</button>
+      <button type="button" class="main-btn ghost" id="btnNewsMenu">לתפריט</button>
+    </div>
+    <p class="disclaimer" id="newsDisclaimer"></p>
   </div>
 
   <!-- ===== תדריך קולנועי: המצלמה סוקרת את הקומה בזמן שהמשימה מוקראת ===== -->
@@ -203,6 +227,7 @@
 <noscript><p style="color:#f55">המשחק דורש JavaScript פעיל.</p></noscript>
 <script src="src/brand.js?v=dev"></script>
 <script src="src/levels.js?v=dev"></script>
+<script src="src/news.js?v=dev"></script>
 <script src="src/game.js?v=dev"></script>
 </body>
 </html>

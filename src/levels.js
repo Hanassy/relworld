@@ -1765,5 +1765,6 @@
   if (typeof window !== 'undefined') {
     window.REL_LEVELS = REL_LEVELS;
     window.REL_TECH = REL_TECH;
+    window.REL_TECH_FOR = techFor;   // src/news.js resolves its own missions
   }
 })();

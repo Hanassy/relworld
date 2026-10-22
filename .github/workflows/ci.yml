@@ -46,6 +46,9 @@ jobs:
       - name: Every mission is vocalised
         run: node tools/vocalize.js --check
 
+      - name: Every news mission is well formed
+        run: node tools/news-add.js --check
+
       - name: Smoke test the real game in a browser
         run: node tests/smoke.js
 

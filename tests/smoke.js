@@ -289,7 +289,10 @@ function serve() {
 
   const quote = await page.evaluate(() => {
     const Q = window.RelWorld.QUOTES;
-    const bad = Q.filter(q => !q.t || !q.who || !(q.year >= 1900 && q.year <= 2025));
+    // the upper bound is "not the future": a breaking-news mission quotes
+    // something said this week, so a fixed year would expire every January
+    const thisYear = new Date().getFullYear();
+    const bad = Q.filter(q => !q.t || !q.who || !(q.year >= 1900 && q.year <= thisYear));
     const el = document.getElementById('clearQuote');
     return {
       count: Q.length, bad: bad.length,
@@ -313,14 +316,20 @@ function serve() {
     const shown = (el.querySelector('.q-text') || {}).textContent || '';
     return {
       levels: L.length, floors: window.RelWorld.FLOORS,
+      news: window.RelWorld.NEWS.length,
       missions: missions.size, quotes: quotes.size,
       matchesFloor1: shown.includes(L[0].q.t.slice(0, 20))
     };
   });
-  // the tower is as tall as the data: adding a floor must not need a code edit
-  check('the tower is exactly as tall as the level data, and every mission is its own',
-    content.levels >= 100 && content.floors === content.levels && content.missions === content.levels,
-    `${content.levels} levels, ${content.floors} floors, ${content.missions} distinct missions`);
+  /* The tower is as tall as the career data — adding a floor must not need a
+     code edit — and the weekly news missions sit alongside it rather than on
+     top of it. If a news mission ever counted as a floor it would renumber
+     the whole tower and invalidate every save. */
+  check('the tower is exactly as tall as the career data, with the news beside it',
+    content.levels >= 100 && content.floors + content.news === content.levels &&
+    content.missions === content.levels && content.news >= 1,
+    `${content.levels} levels = ${content.floors} floors + ${content.news} news, ` +
+    `${content.missions} distinct missions`);
   check('each level has its own distinct quote', content.quotes === content.levels,
     `${content.quotes} distinct quotes`);
   check('the quote shown matches the floor just cleared', content.matchesFloor1);
@@ -1232,6 +1241,61 @@ function serve() {
   check('and every desk they left is filled again by the time you take control',
     seated.before >= 4 && seated.left === 0 && seated.cleared && seated.state === 'playing',
     JSON.stringify(seated));
+
+  /* ---- breaking news: the panel, the broadcast, and the mission ---- */
+  const news = await page.evaluate(async () => {
+    const R = window.RelWorld;
+    R.renderNewsPanel();
+    const items = [...document.querySelectorAll('#newsList .news-item')];
+    const panelHidden = document.getElementById('newsPanel').hidden;
+    // the panel has to say what each mission is, or it cannot be chosen from
+    const listed = items.map(b => ({
+      head: (b.querySelector('.nh') || {}).textContent || '',
+      blurb: (b.querySelector('.nb') || {}).textContent || '',
+      date: (b.querySelector('.nd') || {}).textContent || ''
+    }));
+    items[0].click();
+    await new Promise(r => setTimeout(r, 120));
+    const feedWords = document.querySelectorAll('#newsFeed .w').length;
+    const speakers = document.querySelectorAll('#newsFeed .who').length;
+    const shown = document.getElementById('newsScreen').hidden === false;
+    const source = document.getElementById('newsSource').textContent;
+    document.getElementById('btnNewsGo').click();
+    await new Promise(r => setTimeout(r, 120));
+    return {
+      panelHidden, listed, feedWords, speakers, shown, source,
+      level: R.state.level, floors: R.FLOORS,
+      title: document.getElementById('bTitle').textContent,
+      briefing: document.getElementById('briefingScreen').hidden === false
+    };
+  });
+  check('the news panel lists each mission by headline, date and blurb',
+    !news.panelHidden && news.listed.length >= 1 &&
+    news.listed.every(l => l.head.length > 5 && l.blurb.length > 5 && /\d{4}/.test(l.date)),
+    JSON.stringify(news.listed[0]));
+  check('choosing one plays a bulletin with more than one speaker',
+    news.shown && news.speakers >= 2 && news.feedWords > 20 && /^מה קרה באמת/.test(news.source),
+    `${news.speakers} speakers, ${news.feedWords} words`);
+  /* A news mission must never be announced as a floor. The tower is 110 floors
+     and the save file counts them, so "קומה 111" would be a lie on screen and
+     a renumbering waiting to happen. */
+  check('and hands over to a briefing that does not call it a floor',
+    news.briefing && news.level >= news.floors && !/קומה/.test(news.title) &&
+    news.title.includes('חדשות'),
+    `${news.title} @ level ${news.level}`);
+
+  const newsProgress = await page.evaluate(() => {
+    const R = window.RelWorld;
+    const before = localStorage.getItem('rel_unlocked');
+    R.openBriefing(R.newsIndex(0), true);
+    R.levelCleared();
+    return { before, after: localStorage.getItem('rel_unlocked'),
+             next: document.getElementById('btnNext').textContent };
+  });
+  // clearing this week's mission must not unlock a floor you have not climbed
+  check('clearing a news mission moves the career not one floor',
+    newsProgress.before === newsProgress.after && /חדשות/.test(newsProgress.next),
+    JSON.stringify(newsProgress));
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

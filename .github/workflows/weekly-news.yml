@@ -1,0 +1,47 @@
+# Opens one issue a week asking for the week's breaking-news mission.
+#
+# Why an issue, and not a bot that writes the mission itself: these are satire
+# about named people, written within days of the thing happening, published to
+# a public URL under this repository's name. The research is mechanisable and
+# so is the Hebrew — tools/news-add.js does both halves — but the judgement
+# about whether a joke is fair this week is not, and an unattended cron job
+# has no way to decline. So the schedule produces a prompt for a person, and
+# the person (or Claude, asked to) does the rest.
+#
+# Turning it off: Actions -> weekly news mission -> ... -> Disable workflow.
+name: weekly news mission
+
+on:
+  schedule:
+    # Mondays, 06:11 UTC. Off the hour on purpose: scheduled runs queue behind
+    # everyone else's :00 jobs and GitHub drops them under load.
+    - cron: '11 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  ask:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Open this week's issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TITLE="📺 משימת השבוע — $(date -u +'%G-W%V')"
+
+          # never open a second one for the same week, however often this runs
+          if gh issue list --repo "$REPO" --state all --limit 100 \
+               --json title --jq '.[].title' | grep -qxF "$TITLE"; then
+            echo "already opened: $TITLE"
+            exit 0
+          fi
+
+          gh issue create --repo "$REPO" --title "$TITLE" \
+            --body-file .github/weekly-news-issue.md

@@ -82,9 +82,27 @@
      The 100 levels live in src/levels.js (window.REL_LEVELS), which is the
      single source of truth shared with the readable LEVELS.md. Each entry is
      themed on a real tech event and carries the matching quote. */
-  const LEVELS = (typeof window !== 'undefined' && window.REL_LEVELS) || [];
+  const CAREER = (typeof window !== 'undefined' && window.REL_LEVELS) || [];
+  /* Breaking news (src/news.js) is one mission a week built on something that
+     actually happened. They are played from the menu panel, not climbed, so
+     they are appended to LEVELS — which is what every lookup here is indexed
+     by — while FLOORS stays the height of the tower. Everything that counts
+     career progress keys on FLOORS, so a news mission moves nothing. */
+  const NEWS = (typeof window !== 'undefined' && window.REL_NEWS) || [];
+  const techFor = (typeof window !== 'undefined' && window.REL_TECH_FOR) || null;
+  const LEVELS = CAREER.concat(NEWS.map(n => {
+    // a news mission carries the hardware of its own year, same as a floor;
+    // levels.js already did this for the tower before handing the lookup over
+    const l = n.level;
+    l.era = l.era || l.q.year;
+    if (techFor && !l.kit) l.kit = techFor(l.era);
+    return l;
+  }));
+  const newsIndex = i => FLOORS + i;
+  const isNews = lvl => lvl >= FLOORS;
   const STORY = LEVELS.map((l, i) => ({
-    title: `קומה ${i + 1} · ${l.name}`,
+    title: i < CAREER.length ? `קומה ${i + 1} · ${l.name}`
+                             : `📺 חדשות מתפרצות · ${l.name}`,
     subtitle: l.sub,
     type: l.type,
     text: l.text,
@@ -99,7 +117,7 @@
   // per-level quote, 1:1 with the floor (no recycling)
   const QUOTES = LEVELS.map(l => l.q);
   // the tower is exactly as tall as the data, so adding a floor needs no edit here
-  const FLOORS = LEVELS.length;
+  const FLOORS = CAREER.length;
   unlockedLevel = Math.min(unlockedLevel, FLOORS - 1);   // a save from a shorter tower
   /* What you hand a worker is whatever was new in the year the mission is set
      in: a 1984 floor runs on 3.5" floppies, only the AI floors see a GPU. The
@@ -1032,7 +1050,7 @@
   const SCREENS = {
     menu: $('startScreen'), opening: $('openingScreen'), briefing: $('briefingScreen'),
     clear: $('clearScreen'), paused: $('pauseScreen'), over: $('overScreen'),
-    legal: $('legalScreen')
+    legal: $('legalScreen'), news: $('newsScreen')
   };
 
   /* ======================= credit, sharing, notice =======================
@@ -1088,6 +1106,9 @@
     $('buildId').textContent = BUILD;
     $('legalText').textContent = BRAND.disclaimerFull;
     $('openingDisclaimer').textContent = BRAND.disclaimerShort;
+    // the weekly mission is about this week's news and the people in it, so
+    // the notice belongs on the broadcast more than anywhere else in the game
+    $('newsDisclaimer').textContent = BRAND.disclaimerShort;
     const line = where =>
       `${mark()} נבנה על ידי <a href="${BRAND.link(where)}" target="_blank" rel="noopener">` +
       `${BRAND.name}</a> · ${BRAND.tagline}`;
@@ -1191,6 +1212,7 @@
     slaps: 0, partsGiven: 0, coinsGot: 0,
     timeLeft: 0,
     camX: 0, camY: 350, scale: 0.13, buildingAlpha: 1, introT: 0, introDur: 0,
+    newsAt: 0,                  // which bulletin the news screen is showing
     cast: null,                 // the staged scene, from the briefing until they sit
     shake: 0, globalTime: 0,
     brief: { t: 0, shots: [], progress: 0, tourBase: -1, words: [], textLen: 1, wordIndex: -2 },
@@ -1285,7 +1307,9 @@
 
   function refreshStatus() {
     $('score').textContent = S.score;
-    $('levelDisplay').textContent = S.level + 1;
+    // the floor counter reads 📺 on a news mission rather than inventing a
+    // storey above the roof
+    $('levelDisplay').textContent = isNews(S.level) ? '📺' : String(S.level + 1);
     $('keys').textContent = S.keys;
     $('parts').textContent = S.parts;
     if (S.floor) {
@@ -1791,7 +1815,7 @@
       S.score = 0; S.keys = 0; S.parts = 0; S.masterKey = false;
       S.strikes = 0; S.runFloors = 0;
     }
-    S.level = clamp(level, 0, FLOORS - 1);
+    S.level = clamp(level, 0, LEVELS.length - 1);
     S.scoreAtStart = S.score;
 
     const f = prepareFloor();
@@ -1890,9 +1914,11 @@
       `<div>📈 ניקוד מצטבר: <b>${S.score}</b></div>`
     ].join('');
     const q = QUOTES[S.level % QUOTES.length];
-    track('floor-cleared', { floor: S.level + 1 });
+    if (isNews(S.level)) track('news-cleared', { news: NEWS[S.level - FLOORS].id });
+    else track('floor-cleared', { floor: S.level + 1 });
     const quote = showQuote($('clearQuote'), q);
-    $('btnNext').textContent = S.level >= FLOORS - 1 ? 'לסיום הקריירה' : 'לקומה הבאה';
+    $('btnNext').textContent = isNews(S.level) ? '📺 חזרה לחדשות'
+      : S.level >= FLOORS - 1 ? 'לסיום הקריירה' : 'לקומה הבאה';
     refreshStatus();
     setTimeout(() => {
       if (S.state !== 'clear') return;
@@ -3019,6 +3045,97 @@
     narration.textContent = options.narration ? '🗣️' : '🤐';
   }
 
+  /* ======================= breaking news =======================
+     One mission a week, built on something that actually happened. It is
+     picked from a panel on the menu rather than climbed to, introduced by a
+     bulletin, and then handed to the ordinary briefing: from there on it is
+     an ordinary mission and every bit of machinery below treats it as one. */
+
+  const hebDate = iso => {
+    const p = String(iso).split('-');
+    return p.length === 3 ? `${+p[2]}.${+p[1]}.${p[0]}` : String(iso);
+  };
+
+  function renderNewsPanel() {
+    const panel = $('newsPanel'), list = $('newsList');
+    panel.hidden = !NEWS.length;
+    if (!NEWS.length) return;
+    list.textContent = '';
+    // newest first: this week's is what anyone opening the panel came for
+    NEWS.map((n, i) => ({ n, i }))
+      .sort((a, b) => (a.n.date < b.n.date ? 1 : a.n.date > b.n.date ? -1 : 0))
+      .forEach(({ n, i }) => {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'news-item';
+        const date = document.createElement('span');
+        date.className = 'nd'; date.textContent = hebDate(n.date);
+        const head = document.createElement('span');
+        head.className = 'nh'; head.textContent = n.headline;
+        head.prepend(date);
+        const blurb = document.createElement('span');
+        blurb.className = 'nb'; blurb.textContent = n.blurb;
+        btn.append(head, blurb);
+        btn.addEventListener('click', () => openNews(i));
+        li.appendChild(btn);
+        list.appendChild(li);
+      });
+  }
+
+  /** Lays the bulletin out, one speaker per block, and returns the single
+      script the narrator reads across all of them. Word N on screen is word N
+      in the mouth, exactly as in a mission: the plain spelling is shown and
+      the pointed one is spoken. */
+  function buildBulletin(n) {
+    const feed = $('newsFeed');
+    feed.textContent = '';
+    const words = [];
+    let say = '';
+    for (const b of n.bulletin) {
+      const line = document.createElement('div');
+      line.className = 'line';
+      const who = document.createElement('span');
+      who.className = 'who'; who.textContent = b.who;
+      const body = document.createElement('div');
+      body.className = 'said-text';
+      line.append(who, body);
+      feed.appendChild(line);
+      const base = say.length;
+      const spoken = b.say || b.text;
+      const starts = wordStarts(spoken);
+      splitWords(body, b.text).forEach((w, k) => {
+        words.push({ el: w.el, start: base + (starts[k] === undefined ? w.start : starts[k]) });
+      });
+      say += spoken + ' ';
+    }
+    say = say.trim();
+    return { words, say, spoken: { starts: words.map(w => w.start), length: say.length } };
+  }
+
+  function readBulletin() {
+    const n = NEWS[S.newsAt];
+    if (!n) return;
+    const b = buildBulletin(n);
+    Narrator.speak(b.say, p => highlightWords(b.words, b.spoken, p));
+  }
+
+  function openNews(i) {
+    const n = NEWS[i];
+    if (!n) return;
+    Audio.init();
+    Narrator.stop();
+    S.newsAt = i;
+    $('newsDate').textContent = hebDate(n.date);
+    $('newsHeadline').textContent = n.headline;
+    // the one part of the screen that is not satire, and it says so
+    $('newsSource').textContent = `מה קרה באמת: ${n.source}`;
+    S.state = 'news';
+    showScreen('news');
+    track('news-open', { news: n.id });
+    readBulletin();
+  }
+
   function renderMenu() {
     const frag = document.createDocumentFragment();
     for (let i = 0; i < FLOORS; i++) {
@@ -3055,6 +3172,7 @@
         list.appendChild(li);
       });
     }
+    renderNewsPanel();
     $('bestScore').textContent = bestScore;
     $('contLvl').textContent = unlockedLevel + 1;
     $('btnContinue').hidden = unlockedLevel === 0;
@@ -3074,9 +3192,18 @@
   $('btnEnterBuilding').addEventListener('click', () => { Narrator.stop(); openBriefing(0, true); });
   $('btnContinue').addEventListener('click', () => openBriefing(unlockedLevel, true));
   $('btnGo').addEventListener('click', startLevel);
+  $('btnNewsGo').addEventListener('click', () => {
+    Narrator.stop();
+    openBriefing(newsIndex(S.newsAt), true);
+  });
+  $('btnNewsReplay').addEventListener('click', () => { Narrator.stop(); readBulletin(); });
+  $('btnNewsMenu').addEventListener('click', toMenu);
   $('btnBriefMenu').addEventListener('click', toMenu);
   $('btnNext').addEventListener('click', () => {
-    if (S.level >= FLOORS - 1) {
+    // a news mission is not a rung: there is no floor above it to go to
+    if (isNews(S.level)) {
+      toMenu();
+    } else if (S.level >= FLOORS - 1) {
       gameOver('סיימת 100 קומות. הדירקטוריון מינה אותך למנכ"ל, והמשקיעים כבר מתחרטים.', true);
     } else {
       openBriefing(S.level + 1, false);
@@ -3207,7 +3334,8 @@
                       startCareer, startLevel, shareGame, BRAND, track, BUILD, checkForUpdate,
                       stopNarration: Narrator.stop,
                       view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,
-                      SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel };
+                      SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel,
+                      NEWS, openNews, newsIndex, isNews, renderNewsPanel };
 
   $('btnShareClear').addEventListener('click', e => shareGame(e.currentTarget));
   $('btnShareOver').addEventListener('click', e => shareGame(e.currentTarget));

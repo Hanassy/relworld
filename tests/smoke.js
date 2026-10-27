@@ -1357,10 +1357,21 @@ function serve() {
 
   /* The twist is what makes a news mission worth a week rather than floor 111
      with a red border, so the tool that adds one refuses a draft without it. */
-  const required = await page.evaluate(() =>
-    window.RelWorld.NEWS.every(n => n.level.twist && n.level.outro &&
-      n.level.twist.avatar && n.level.twist.goal !== n.level.goal));
-  check('every news mission on file declares a twist and a closing line', required);
+  const required = await page.evaluate(() => {
+    const R = window.RelWorld;
+    return R.NEWS.map((n, i) => {
+      R.openBriefing(R.newsIndex(i), true);
+      const f = R.state.floor, l = n.level;
+      /* The marker on the floor, not just the field in the file. A whitelist in
+         the vocaliser once ate `goalIcon` on its next run and the car mission
+         shipped with the HR lawyer standing where the car should be — nothing
+         read the field, so nothing noticed. This reads it off the built floor. */
+      return !!(l.twist && l.outro && l.twist.avatar && l.twist.goal !== l.goal &&
+                l.goalIcon && f.goalIcon === l.goalIcon && f.twist);
+    });
+  });
+  check('every news mission declares a twist, a closing line and its own goal marker',
+    required.length >= 1 && required.every(Boolean), JSON.stringify(required));
 
   /* ---- the bulletin is a broadcast: opener, presenter, cuts, sign-off ---- */
   const tv = await page.evaluate(async () => {
@@ -1418,6 +1429,58 @@ function serve() {
   check('one caption on screen at a time, over a crawl that loops seamlessly',
     tv.onlyOne && tv.lines >= 2 && tv.doubled,
     `${tv.lines} lines, ticker ${tv.ticker} chars, doubled=${tv.doubled}`);
+
+  /* ---- a drawn marker must never be read out as its token ---- */
+  const tokens = await page.evaluate(async () => {
+    const R = window.RelWorld, S = R.state;
+    R.openBriefing(R.newsIndex(0), true);
+    const brief = document.getElementById('bObjectives').textContent;
+    R.startLevel();
+    for (let i = 0; i < 80 && S.state !== 'playing'; i++) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    const panel = document.getElementById('taskList').textContent +
+                  document.getElementById('taskListBottom').textContent;
+    return { brief, panel, both: brief + panel };
+  });
+  check('the drawn goal marker never leaks its token into anything readable',
+    !/@car|@[a-z]+/.test(tokens.both) && tokens.panel.includes('🚗'),
+    tokens.panel.replace(/\s+/g, ' ').trim().slice(0, 90));
+
+  /* ---- the screen behind the presenter changes with what is being said ---- */
+  const shots = await page.evaluate(async () => {
+    const R = window.RelWorld;
+    R.options.narration = true;
+    window.speechSynthesis.speak = (u) => {
+      let p = 0;
+      const t = setInterval(() => {
+        p += 0.07;
+        if (u.onboundary) u.onboundary({ charIndex: Math.floor(p * (u.text || '').length) });
+        if (p >= 1) { clearInterval(t); if (u.onend) u.onend(); }
+      }, 20);
+    };
+    R.openNews(0);
+    const seen = new Set();
+    const labels = new Set();
+    for (let i = 0; i < 300; i++) {
+      await new Promise(r => setTimeout(r, 50));
+      const box = document.getElementById('newsMonitor');
+      const icon = (box.querySelector('.shot') || {}).textContent;
+      const label = (box.querySelector('.shot-label') || {}).textContent;
+      if (icon) seen.add(icon);
+      if (label) labels.add(label);
+      if (document.getElementById('newsScreen').classList.contains('signoff-on')) break;
+    }
+    return {
+      icons: [...seen], labels: [...labels],
+      declared: R.NEWS.every(n => (n.bulletin || []).every(b => (b.shots || []).length >= 1)),
+      namesMusk: R.NEWS[0].bulletin.some(b => /מאסק/.test(b.text))
+    };
+  });
+  check('the screen over the presenter cycles pictures of what is being said',
+    shots.icons.length >= 3 && shots.labels.length >= 3 && shots.declared,
+    `${shots.icons.join(' ')} | ${shots.labels.join(' / ')}`);
+  check('and the bulletin names who the story is about', shots.namesMusk);
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

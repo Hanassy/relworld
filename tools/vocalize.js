@@ -59,6 +59,21 @@ for (const pointed of Object.values(DICT)) {
   if (!DICT[key]) DICT[key] = pointed;
 }
 
+/** Reorders an object's keys, and refuses to lose one. Rewriting a data file
+    through a fixed key list is convenient and quietly destructive: anything
+    the list has not heard of disappears. Every field is accounted for here,
+    so a new one fails the run instead of vanishing from the game. */
+function pickAll(obj, order, label) {
+  const out = {};
+  for (const k of order) if (obj[k] !== undefined) out[k] = obj[k];
+  const lost = Object.keys(obj).filter(k => out[k] === undefined && obj[k] !== undefined);
+  if (lost.length) {
+    throw new Error(`${label}: ${lost.join(', ')} would be dropped — add to the key order in ` +
+                    'tools/vocalize.js (this is how goalIcon was lost once)');
+  }
+  return out;
+}
+
 /** Points one string. Returns the text plus any word the list does not know. */
 function vocalize(text) {
   const unknown = [];
@@ -101,12 +116,7 @@ function processFile(file, marker, order, walk) {
   if (!m) throw new Error(`could not find ${marker} in ${path.basename(file)}`);
   const data = JSON.parse(m[2]);
   data.forEach(walk);
-  const pick = o => {
-    const out = {};
-    for (const k of order) if (o[k] !== undefined) out[k] = o[k];
-    return out;
-  };
-  return { src, m, data, pick };
+  return { src, m, data };
 }
 
 function main() {
@@ -150,20 +160,22 @@ function main() {
     process.exit(changed ? 1 : 0);
   }
 
-  const ORDER = ['name', 'sub', 'saySub', 'type', 'goal', 'goalName', 'scene',
-                 'era', 'avatar', 'text', 'say', 'twist', 'outro', 'q'];
-  const ordered = data.map(l => {
-    const o = {};
-    for (const k of ORDER) if (l[k] !== undefined) o[k] = l[k];
-    return o;
-  });
+  /* The key order a level is written back in. It is also, dangerously, a
+     whitelist: a field missing from this list used to be dropped on the next
+     run without a word, which is how the car mission lost its `goalIcon` and
+     spent a release showing the HR lawyer at the goal. `pick` now refuses to
+     drop anything instead. */
+  const ORDER = ['name', 'sub', 'saySub', 'type', 'goal', 'goalName', 'goalIcon',
+                 'scene', 'era', 'avatar', 'text', 'say', 'twist', 'outro', 'q'];
+  const ordered = data.map((l, i) => pickAll(l, ORDER, `L${i + 1}`));
   let body = JSON.stringify(ordered, null, 2)
     .split('\n').map(line => (line.trim() ? '  ' + line : line)).join('\n').replace(/^ {2}/, '');
   fs.writeFileSync(LEVELS, src.slice(0, m.index + m[1].length) + body + src.slice(m.index + m[1].length + m[2].length));
 
-  const nbody = JSON.stringify(news.data.map(n => {
-    const o = news.pick(n);
-    o.level = ORDER.reduce((a, k) => (n.level[k] !== undefined && (a[k] = n.level[k]), a), {});
+  const NEWS_ORDER = ['id', 'date', 'headline', 'blurb', 'source', 'bulletin', 'level'];
+  const nbody = JSON.stringify(news.data.map((n, i) => {
+    const o = pickAll(n, NEWS_ORDER, `N${i + 1}`);
+    o.level = pickAll(n.level, ORDER, `N${i + 1}.level`);
     return o;
   }), null, 2);
   fs.writeFileSync(NEWS, news.src.slice(0, news.m.index + news.m[1].length) + nbody +

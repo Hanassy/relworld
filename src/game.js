@@ -159,6 +159,12 @@
   const RIVAL_FACES = ['👺', '🤵', '👔'];
   const GOAL_ICON = ['🔼', '🗓️', '👩‍⚖'];
   const GOAL_FALLBACK = ['מעלית', 'ישיבה', 'HR'];
+  /* A goal marker beginning with @ is drawn on the canvas rather than typed,
+     because the emoji set has no white car. Anywhere the marker appears as
+     TEXT — the task panel, the briefing chips — it needs a glyph instead, or
+     the player reads "הגע ל-המכונית @car". */
+  const DRAWN_ICON = { '@car': '🚗' };
+  const iconText = i => DRAWN_ICON[i] || i;
   // short sign-posting name, shown on the blinking waypoint arrow all game long
   const goalTag = i => STORY[i].goal || GOAL_FALLBACK[STORY[i].type];
 
@@ -210,6 +216,26 @@
       });
     }
 
+    /* A short burst of white noise through a high-pass, which is as close to a
+       cymbal as an oscillator gets. Used by the news sting's landing. */
+    function noise(dur, vol, delay) {
+      if (!ctx || !options.sfx) return;
+      try {
+        const t0 = ctx.currentTime + (delay || 0);
+        const n = Math.floor(ctx.sampleRate * dur);
+        const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+        const src = ctx.createBufferSource(); src.buffer = buf;
+        const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 5000;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(vol, t0);
+        g.gain.exponentialRampToValueAtTime(0.01, t0 + dur);
+        src.connect(hp); hp.connect(g); g.connect(master);
+        src.start(t0); src.stop(t0 + dur);
+      } catch (e) { /* ignore */ }
+    }
+
     function sweep(from, to, dur, vol) {
       if (!ctx || !options.sfx) return;
       try {
@@ -250,6 +276,21 @@
       masterKey() { [600, 800, 1000].forEach((f, i) => tone(f, 'sine', 0.15, 0.3, i * 0.1)); },
       lock() { tone(300, 'square', 0.1, 0.3); tone(200, 'square', 0.1, 0.3, 0.1); },
       part() { tone(1500, 'square', 0.1, 0.15); tone(2000, 'square', 0.15, 0.15, 0.1); },
+      /* The news sting. Every bulletin on earth opens on the same idea: a
+         rising fanfare over a held bass, and a hit at the top. Four brass-ish
+         notes on a saw wave, a fifth underneath, and a cymbal-ish noise burst
+         on the landing — 1.6s, which is exactly as long as the opener runs. */
+      newsSting() {
+        const NOTES = [392, 523.25, 659.25, 783.99];       // G4 C5 E5 G5
+        NOTES.forEach((f, i) => {
+          tone(f, 'sawtooth', 0.26, 0.17, i * 0.17);
+          tone(f / 2, 'triangle', 0.3, 0.1, i * 0.17);
+        });
+        tone(196, 'triangle', 1.25, 0.16);                 // the bass under it all
+        tone(1046.5, 'sawtooth', 0.75, 0.2, 0.72);         // the hit
+        tone(1567.98, 'sine', 0.6, 0.1, 0.72);
+        noise(0.5, 0.16, 0.72);
+      },
       givePart() { tone(600, 'triangle', 0.1, 0.25); tone(800, 'triangle', 0.2, 0.25, 0.1); },
       slap() { tone(150, 'square', 0.1, 0.5); sweep(600, 200, 0.5, 0.25); },
       deny() { tone(180, 'square', 0.12, 0.25); tone(120, 'square', 0.18, 0.25, 0.1); },
@@ -1309,7 +1350,8 @@
     // the boss slap starts the sprint, so it has to be the last thing you do
     if (f.type === 2) list.push({ label: 'ואז: צ\'אפחה לבוסניק 👺', done: S.chadSlapped });
     const ready = list.every(o => o.done);
-    list.push({ label: `הגע ל-${f.tag} ${f.goalIcon || GOAL_ICON[f.type]}`, done: false, goal: true });
+    list.push({ label: `הגע ל-${f.tag} ${iconText(f.goalIcon || GOAL_ICON[f.type])}`,
+                done: false, goal: true });
     return { list, ready };
   }
 
@@ -2053,6 +2095,7 @@
     S.floor = null;
     S.cast = null;
     clearTimeout(S.newsTimer);          // the opener must not fire over the menu
+    if (S.bull) clearInterval(S.bull.shotTimer);
     $('newsScreen').classList.remove('sting-on', 'live', 'signoff-on');
     S.camX = 0; S.camY = 350; S.scale = 0.13; S.buildingAlpha = 1;
     renderMenu();
@@ -3300,10 +3343,29 @@
         words.push({ el: w.el, start: base + (starts[k] === undefined ? w.start : starts[k]) });
       });
       say += spoken + ' ';
-      lines.push({ el: line, who: b.who, to: say.length });
+      lines.push({ el: line, who: b.who, shots: b.shots || [], to: say.length });
     }
     say = say.trim();
     return { words, say, lines, spoken: { starts: words.map(w => w.start), length: say.length } };
+  }
+
+  /** Paint the screen over the presenter's shoulder. Each bulletin line
+      carries its own pictures and they change while it is read, so the thing
+      being talked about is the thing on the wall. */
+  function showShot(shot) {
+    const box = $('newsMonitor');
+    box.textContent = '';
+    if (!shot) return;
+    const icon = document.createElement('div');
+    icon.className = 'shot';
+    icon.textContent = shot[0];
+    box.appendChild(icon);
+    if (shot[1]) {
+      const label = document.createElement('div');
+      label.className = 'shot-label';
+      label.textContent = shot[1];
+      box.appendChild(label);
+    }
   }
 
   /** Cut to whichever speaker is talking: the caption, the name in the lower
@@ -3326,6 +3388,17 @@
     badge.textContent = role;
     anchor.appendChild(badge);
     $('newsWho').textContent = name;
+
+    /* The pictures cycle for as long as this speaker is on, and stop when the
+       cut comes — an interval left running would keep flipping images behind
+       the next person. */
+    clearInterval(bull.shotTimer);
+    const shots = (bull.lines[i] || {}).shots || [];
+    let k = 0;
+    showShot(shots[0]);
+    if (shots.length > 1) {
+      bull.shotTimer = setInterval(() => showShot(shots[++k % shots.length]), 1900);
+    }
   }
 
   /** The crawl. Written twice so the animation can loop on the seam without a
@@ -3343,14 +3416,17 @@
     const n = NEWS[S.newsAt];
     if (!n) return;
     const screen = $('newsScreen');
+    if (S.bull) clearInterval(S.bull.shotTimer);
     const bull = buildBulletin(n);
     S.bull = bull;
+    bull.at = -1;
     cutTo(bull, 0);
 
     /* The opener runs before a word is spoken, the way it does on television:
        bars, the slam, and only then the studio. */
     screen.classList.remove('live', 'signoff-on');
     screen.classList.add('sting-on');
+    Audio.newsSting();
     clearTimeout(S.newsTimer);
     S.newsTimer = setTimeout(() => {
       if (S.state !== 'news') return;
@@ -3378,7 +3454,6 @@
     S.newsAt = i;
     $('newsDate').textContent = hebDate(n.date);
     $('newsHeadline').textContent = n.headline;
-    $('newsMonitor').textContent = n.headline;
     // the one part of the screen that is not satire, and it says so
     $('newsSource').textContent = `מה קרה באמת: ${n.source}`;
     buildTicker(n);
@@ -3447,6 +3522,7 @@
   $('btnNewsGo').addEventListener('click', () => {
     Narrator.stop();
     clearTimeout(S.newsTimer);
+    if (S.bull) clearInterval(S.bull.shotTimer);
     $('newsScreen').classList.remove('sting-on', 'live', 'signoff-on');
     openBriefing(newsIndex(S.newsAt), true);
   });

@@ -115,14 +115,46 @@
     <p class="disclaimer" id="openingDisclaimer"></p>
   </div>
 
-  <!-- ===== מהדורת חדשות: הודעה לעיתונות לפני התדריך ===== -->
+  <!-- ===== מהדורת חדשות: הכל קורה בתוך הטלוויזיה ===== -->
   <div id="newsScreen" class="overlayScreen newsroom" hidden>
-    <div class="news-bar">
-      <span class="live-badge"><span class="live-dot"></span> שידור חי</span>
-      <span id="newsDate" class="news-date"></span>
+    <div class="tv">
+      <div class="tv-glass">
+
+        <!-- האולפן -->
+        <div class="studio">
+          <div class="skyline"></div>
+          <div class="wallscreen"><span id="newsMonitor"></span></div>
+          <div class="anchor" id="newsAnchor">📺</div>
+          <div class="desk"><span class="desk-logo">REL</span></div>
+        </div>
+
+        <!-- פתיח: חדשות מתפרצות -->
+        <div class="sting" id="newsSting">
+          <div class="sting-bars"><i></i><i></i><i></i></div>
+          <div class="sting-word">חדשות מתפרצות</div>
+        </div>
+
+        <!-- סיומת -->
+        <div class="signoff" id="newsSignoff">REL WORLD · חדשות</div>
+
+        <!-- שליש תחתון -->
+        <div class="lower3">
+          <span class="l3-live"><span class="live-dot"></span>חי</span>
+          <span class="l3-who" id="newsWho"></span>
+          <span class="l3-head" id="newsHeadline">חדשות מתפרצות</span>
+          <span class="l3-date" id="newsDate"></span>
+        </div>
+
+        <!-- כתוביות: שורה אחת בכל פעם, עם ההדגשה שרצה עם הקריין -->
+        <div class="caption" id="newsFeed" aria-live="off"></div>
+
+        <!-- שורת החדשות הרצה -->
+        <div class="ticker"><div class="ticker-run" id="newsTicker"></div></div>
+        <div class="scanlines" aria-hidden="true"></div>
+      </div>
+      <div class="tv-stand" aria-hidden="true"></div>
     </div>
-    <h1 id="newsHeadline">חדשות מתפרצות</h1>
-    <div id="newsFeed" class="news-feed" aria-live="off"></div>
+
     <p id="newsSource" class="news-source"></p>
     <div class="btn-row">
       <button type="button" class="main-btn" id="btnNewsGo">לתדריך המשימה</button>

@@ -1328,13 +1328,19 @@ function serve() {
       // the new goal has to be somewhere you can actually drive to
       reachable: R.distanceField(S.map, before.goal.x, before.goal.y, true)[f.goal.y][f.goal.x]
     };
+    /* The exit is a stunt loop, so the last arrival starts a ride rather than
+       clearing on the spot. Wait it out the way a player does. */
     stepOnto();
-    return { before, mid, cleared: S.state === 'clear',
+    const rode = !!S.loopRun;
+    for (let i = 0; i < 60 && S.state !== 'clear'; i++) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return { before, mid, rode, cleared: S.state === 'clear',
              outro: (document.getElementById('clearOutro').textContent || '').trim(),
              outroShown: document.getElementById('clearOutro').hidden === false };
   });
   check('reaching the first goal hands you the thing and turns you into it',
-    twist.before.avatar !== twist.mid.avatar && twist.mid.avatar === '🚗' &&
+    twist.before.avatar !== twist.mid.avatar && twist.mid.avatar === '@car' &&
     twist.mid.twisted && twist.mid.state !== 'clear',
     `${twist.before.avatar} -> ${twist.mid.avatar}`);
   /* "180 degrees": the point of the second half is that it is a drive. A new
@@ -1345,9 +1351,9 @@ function serve() {
     twist.mid.tag !== twist.before.tag && twist.mid.time > twist.before.time,
     `moved ${twist.mid.moved} tiles, ${twist.mid.reachable} steps away, ` +
     `+${twist.mid.time - twist.before.time}s`);
-  check('the second arrival clears, and the punchline is read out',
-    twist.cleared && twist.outroShown && twist.outro.length > 8,
-    `${twist.cleared} | ${twist.outro}`);
+  check('the second arrival rides the loop, then clears with the punchline',
+    twist.rode && twist.cleared && twist.outroShown && twist.outro.length > 8,
+    `rode=${twist.rode} cleared=${twist.cleared} | ${twist.outro}`);
 
   /* The twist is what makes a news mission worth a week rather than floor 111
      with a red border, so the tool that adds one refuses a draft without it. */
@@ -1355,6 +1361,63 @@ function serve() {
     window.RelWorld.NEWS.every(n => n.level.twist && n.level.outro &&
       n.level.twist.avatar && n.level.twist.goal !== n.level.goal));
   check('every news mission on file declares a twist and a closing line', required);
+
+  /* ---- the bulletin is a broadcast: opener, presenter, cuts, sign-off ---- */
+  const tv = await page.evaluate(async () => {
+    const R = window.RelWorld;
+    const screen = document.getElementById('newsScreen');
+    const cls = () => [...screen.classList].filter(c => /sting-on|live|signoff-on/.test(c)).join(',');
+    const seen = [];
+    const note = () => { const c = cls(); if (c !== seen[seen.length - 1]) seen.push(c); };
+
+    /* A narrator that reports progress, so the cuts and the sign-off run. The
+       voice path has to be the one under test: with narration off the engine
+       falls back to a timer sized by text length, which is ~14s for a
+       bulletin and would just time the test out. */
+    R.options.narration = true;
+    let timer = null;
+    window.speechSynthesis.speak = (u) => {
+      let p = 0;
+      timer = setInterval(() => {
+        p += 0.06;
+        if (u.onboundary) u.onboundary({ charIndex: Math.floor(p * (u.text || '').length) });
+        if (p >= 1) { clearInterval(timer); if (u.onend) u.onend(); }
+      }, 20);
+    };
+
+    R.openNews(0);
+    note();
+    const opener = cls();
+    const ticker = document.getElementById('newsTicker').textContent;
+    const whos = new Set(), visible = [];
+    for (let i = 0; i < 400; i++) {
+      await new Promise(r => setTimeout(r, 50));
+      note();
+      const on = [...document.querySelectorAll('#newsFeed .line.on')];
+      visible.push(on.length);
+      const w = document.getElementById('newsWho').textContent.trim();
+      if (w) whos.add(w);
+      if (cls() === 'signoff-on') break;
+    }
+    return {
+      opener, seen, ticker: ticker.length, whos: [...whos],
+      lines: document.querySelectorAll('#newsFeed .line').length,
+      // exactly one caption at a time, the whole way through
+      onlyOne: visible.every(v => v === 1),
+      // the crawl is written twice so -50% lands on the seam with no gap
+      doubled: ticker.length > 40 && ticker.slice(0, ticker.length / 2) === ticker.slice(ticker.length / 2),
+      anchorIsPerson: /\u{1F9D1}/u.test(document.getElementById('newsAnchor').textContent)
+    };
+  });
+  check('the broadcast opens on a sting before a word is spoken',
+    tv.opener === 'sting-on' && tv.seen[0] === 'sting-on', tv.seen.join(' -> '));
+  check('then goes live, cuts between the presenters, and signs off',
+    tv.seen.includes('live') && tv.seen[tv.seen.length - 1] === 'signoff-on' &&
+    tv.whos.length >= 2 && tv.anchorIsPerson,
+    `${tv.seen.join(' -> ')} | ${tv.whos.join(' / ')}`);
+  check('one caption on screen at a time, over a crawl that loops seamlessly',
+    tv.onlyOne && tv.lines >= 2 && tv.doubled,
+    `${tv.lines} lines, ticker ${tv.ticker} chars, doubled=${tv.doubled}`);
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

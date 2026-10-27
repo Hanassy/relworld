@@ -1039,6 +1039,8 @@
              type: story.type, tag: goalTag(index), kit: kitFor(index),
              avatar: story.avatar, goalName: story.goalName || GOAL_NAME[story.type],
              twist: (LEVELS[index] && LEVELS[index].twist) || null,
+             goalIcon: (LEVELS[index] && LEVELS[index].goalIcon) || null,
+             loop: false,
              scene: sceneName, palette: scene.pal, roomColor: scene.room, corrColor: scene.corr,
              screens, screenAt, wallTexts, textAt };
   }
@@ -1214,7 +1216,9 @@
     timeLeft: 0,
     camX: 0, camY: 350, scale: 0.13, buildingAlpha: 1, introT: 0, introDur: 0,
     newsAt: 0,                  // which bulletin the news screen is showing
+    bull: null, newsTimer: 0,   // the bulletin being read, and its opener
     twisted: false,             // has this mission's twist already been taken
+    loopRun: null,              // the car going round the stunt loop at the exit
     cast: null,                 // the staged scene, from the briefing until they sit
     shake: 0, globalTime: 0,
     brief: { t: 0, shots: [], progress: 0, tourBase: -1, words: [], textLen: 1, wordIndex: -2 },
@@ -1224,6 +1228,8 @@
   };
 
   const INTRO_DUR = 1100;      // the tower dive now lives in the briefing
+  const LOOP_R = 34;           // the stunt loop at the exit, in world units
+  const LOOP_MS = 1500;        // how long the car takes to go round it
   const BRIEF_OPEN_MS = 4200;  // the tower reveal: long enough to actually watch
   // A 58-storey shell could only be framed by shrinking it to a sliver, and its
   // base ended up behind the briefing text. 36 storeys fit the clear band above
@@ -1303,7 +1309,7 @@
     // the boss slap starts the sprint, so it has to be the last thing you do
     if (f.type === 2) list.push({ label: 'ואז: צ\'אפחה לבוסניק 👺', done: S.chadSlapped });
     const ready = list.every(o => o.done);
-    list.push({ label: `הגע ל-${f.tag} ${GOAL_ICON[f.type]}`, done: false, goal: true });
+    list.push({ label: `הגע ל-${f.tag} ${f.goalIcon || GOAL_ICON[f.type]}`, done: false, goal: true });
     return { list, ready };
   }
 
@@ -1362,7 +1368,7 @@
     // you cannot be caught before you have had a chance to move
     S.player = { x: f.start.x, y: f.start.y, animY: 0, invuln: ARRIVAL_GRACE };
     S.slaps = 0; S.partsGiven = 0; S.coinsGot = 0; S.chadSlapped = false;
-    S.twisted = false;
+    S.twisted = false; S.loopRun = null;
     S.combo = 0; S.comboTimer = 0;
     S.particles = []; S.texts = []; S.slapFx = [];
     S.timeLeft = f.time;
@@ -1927,6 +1933,8 @@
     f.goal = far.spot;
     f.tag = tw.goal;
     f.goalName = tw.goalName;
+    f.goalIcon = tw.goalIcon || null;
+    f.loop = !!tw.loop;                             // a stunt track at the exit
     f.avatar = tw.avatar;                           // ...and you are it
     S.twisted = true;
     S.timeLeft += tw.bonus || 45;                   // the second half is a drive
@@ -1936,6 +1944,27 @@
     addText(atX, atY - 1, tw.announce, '#fff');
     if (tw.announce) Narrator.speak(tw.sayAnnounce || tw.announce);
     refreshStatus();
+  }
+
+  /* The exit on the car mission is a stunt loop, so arriving at it is not
+     walking through a door: the car rides up the inside of the ring, comes
+     over the top upside down and lands, and only then does the floor clear.
+     Input is locked for the ride — you have already won, you are watching. */
+  function startLoop() {
+    S.loopRun = { t: 0 };
+    Audio.part();
+  }
+
+  function updateLoop(dt) {
+    if (!S.loopRun) return;
+    S.loopRun.t += dt / LOOP_MS;
+    if (S.loopRun.t >= 1) {
+      const g = S.floor.goal;
+      addParticles(g.x, g.y, '#ffd166', 50);
+      award(500, g.x, g.y, '360°', '#ffd166');
+      S.loopRun = null;
+      levelCleared();
+    }
   }
 
   function levelCleared() {
@@ -2023,6 +2052,8 @@
     S.state = 'menu';
     S.floor = null;
     S.cast = null;
+    clearTimeout(S.newsTimer);          // the opener must not fire over the menu
+    $('newsScreen').classList.remove('sting-on', 'live', 'signoff-on');
     S.camX = 0; S.camY = 350; S.scale = 0.13; S.buildingAlpha = 1;
     renderMenu();
     showScreen('menu');
@@ -2040,7 +2071,8 @@
 
   /* ======================= player actions ======================= */
   function tryMove(dx, dy) {
-    if (S.state !== 'playing') return false;
+    // no steering while the car is upside down: you have won, you are watching
+    if (S.state !== 'playing' || S.loopRun) return false;
     const nx = S.player.x + dx, ny = S.player.y + dy;
     if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) return false;
     const t = S.map[ny][nx];
@@ -2101,7 +2133,8 @@
         if (objectives().ready) {
           // a mission whose twist is still untaken spends this arrival on it
           if (S.floor.twist && !S.twisted) applyTwist(nx, ny);
-          else levelCleared();
+          else if (S.floor.loop && !S.loopRun) startLoop();
+          else if (!S.loopRun) levelCleared();
         } else {
           Audio.deny();
           addText(nx, ny, 'עוד לא סיימת!', '#ff5555');
@@ -2525,6 +2558,71 @@
     ctx.restore();
   }
 
+  /** The car, drawn rather than borrowed from the emoji font. Three reasons
+      it is worth the forty lines: there is no white car in the emoji set, the
+      one that exists is red and differs on every platform, and a drawn car can
+      be rotated — which is the whole point of the loop at the exit. */
+  function drawCar(x, y, angle, scale) {
+    const k = scale || 1;
+    ctx.save();
+    ctx.translate(x, y);
+    if (angle) ctx.rotate(angle);
+    ctx.scale(k, k);
+    ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 6;
+    // body: a low wedge, because this one is supposed to be a sports car
+    ctx.beginPath();
+    ctx.moveTo(-17, 3);
+    ctx.quadraticCurveTo(-18, -4, -10, -5);
+    ctx.quadraticCurveTo(-5, -12, 3, -12);
+    ctx.quadraticCurveTo(12, -12, 15, -5);
+    ctx.quadraticCurveTo(19, -4, 18, 3);
+    ctx.closePath();
+    ctx.fillStyle = '#f4f6f8';
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#9aa6b2'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.beginPath();                                 // windscreen and cabin
+    ctx.moveTo(-7, -5);
+    ctx.quadraticCurveTo(-4, -10, 2, -10);
+    ctx.quadraticCurveTo(9, -10, 11, -5);
+    ctx.closePath();
+    ctx.fillStyle = '#2d4a63';
+    ctx.fill();
+    ctx.fillStyle = '#c8d2da';                       // the shut line along the flank
+    ctx.fillRect(-12, -1, 24, 1.2);
+    for (const wx of [-9, 9]) {                      // wheels
+      ctx.beginPath();
+      ctx.arc(wx, 4, 4.2, 0, Math.PI * 2);
+      ctx.fillStyle = '#15181c'; ctx.fill();
+      ctx.beginPath();
+      ctx.arc(wx, 4, 1.7, 0, Math.PI * 2);
+      ctx.fillStyle = '#8a949e'; ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** The stunt loop that waits at the exit: a vertical ring the car goes round
+      and comes off upside down. Two arcs make the track, a third the shading. */
+  function drawLoop(x, y) {
+    const R = LOOP_R, cy = y - R;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 13;
+    ctx.beginPath(); ctx.ellipse(x, cy, R, R, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = '#d85a2a'; ctx.lineWidth = 9;
+    ctx.beginPath(); ctx.ellipse(x, cy, R, R, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1.6;
+    ctx.setLineDash([6, 7]);
+    ctx.beginPath(); ctx.ellipse(x, cy, R, R, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = '#8c3a1a'; ctx.lineWidth = 5;   // the legs holding it up
+    ctx.beginPath();
+    ctx.moveTo(x - R + 2, cy + R * 0.7); ctx.lineTo(x - R - 6, y + 4);
+    ctx.moveTo(x + R - 2, cy + R * 0.7); ctx.lineTo(x + R + 6, y + 4);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   /** Goal tile: glowing floor pool, expanding ring, icon and a blinking sign. */
   function drawGoalBeacon(x, y, val, ready) {
     const t = S.globalTime;
@@ -2547,8 +2645,15 @@
 
     ctx.font = '26px Arial';
     ctx.fillStyle = '#fff';
-    const icon = val === TILE.ELEVATOR ? GOAL_ICON[0] : val === TILE.MEETING ? GOAL_ICON[1] : GOAL_ICON[2];
-    ctx.fillText(icon, x, y - 8);
+    /* The marker says what you are walking towards. A mission that renamed
+       its goal has to be able to rename the picture too: the car mission is
+       type 2, and without this the thing waiting at the car was the HR
+       lawyer. '@car' is drawn rather than typed — see drawCar. */
+    const icon = (S.floor && S.floor.goalIcon) ||
+      (val === TILE.ELEVATOR ? GOAL_ICON[0] : val === TILE.MEETING ? GOAL_ICON[1] : GOAL_ICON[2]);
+    const iy = (S.floor && S.floor.loop) ? y + 6 : y - 8;   // clear of the ring
+    if (icon === '@car') drawCar(x, iy - 2, 0, 0.8);
+    else ctx.fillText(icon, x, iy);
     signPlate(x, y - 56 + Math.sin(t * 0.12) * 4, S.floor ? S.floor.tag : '', 0.45 + 0.55 * blink, true);
   }
 
@@ -2708,6 +2813,7 @@
   /* ======================= main render ======================= */
   function draw(dt) {
     updateCamera(dt);
+    updateLoop(dt);
     ctx.clearRect(0, 0, VIEW_W, VIEW_H);
 
     const sx = S.shake > 0 ? (Math.random() - 0.5) * (15 / S.scale) : 0;
@@ -2778,6 +2884,7 @@
           else if (val === TILE.KEY) ctx.fillText('🔑', pX, pY + bop);
           else if (val === TILE.MKEY) ctx.fillText('🗝', pX, pY + bop);
           else if (val === TILE.ELEVATOR || val === TILE.MEETING || val === TILE.HR) {
+            if (S.floor.loop) drawLoop(pX, pY);
             drawGoalBeacon(pX, pY, val, ready);
           } else if (val === TILE.PART) {
             // the part is labelled, and "ניקוב" is far wider than "CD", so the
@@ -2897,14 +3004,27 @@
           if (S.player.x === x && S.player.y === y) {
             ctx.save();
             ctx.globalAlpha = (S.player.invuln > 0 && Math.floor(S.globalTime / 4) % 2) ? 0.35 : 1;
+            const isCar = S.floor.avatar === '@car';
             // marker disc: the suit emoji is dark and gets lost among the desks
-            ctx.beginPath();
-            ctx.ellipse(pX, pY, 18, 9, 0, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(0,229,255,0.28)'; ctx.fill();
-            ctx.strokeStyle = 'rgba(0,229,255,0.95)'; ctx.lineWidth = 2; ctx.stroke();
+            if (!S.loopRun) {
+              ctx.beginPath();
+              ctx.ellipse(pX, pY, 18, 9, 0, 0, Math.PI * 2);
+              ctx.fillStyle = 'rgba(0,229,255,0.28)'; ctx.fill();
+              ctx.strokeStyle = 'rgba(0,229,255,0.95)'; ctx.lineWidth = 2; ctx.stroke();
+            }
             ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 14;
             ctx.font = '36px Arial'; ctx.fillStyle = '#fff';
-            ctx.fillText(S.floor.avatar, pX, pY - S.player.animY + 3);
+            if (S.loopRun) {
+              /* Round the inside of the ring: angle 0 is the bottom, where it
+                 drives on, and half way round it is over the top and inverted.
+                 Same circle drawLoop draws, so the wheels stay on the track. */
+              const a = smooth(clamp(S.loopRun.t, 0, 1)) * Math.PI * 2;
+              drawCar(pX + LOOP_R * Math.sin(a), pY - LOOP_R + LOOP_R * Math.cos(a), a, 1);
+            } else if (isCar) {
+              drawCar(pX, pY - S.player.animY - 4, 0, 1);
+            } else {
+              ctx.fillText(S.floor.avatar, pX, pY - S.player.animY + 3);
+            }
             ctx.restore();
           }
 
@@ -3153,14 +3273,16 @@
       });
   }
 
-  /** Lays the bulletin out, one speaker per block, and returns the single
+  /** Lays the bulletin out, one block per speaker, and returns the single
       script the narrator reads across all of them. Word N on screen is word N
       in the mouth, exactly as in a mission: the plain spelling is shown and
-      the pointed one is spoken. */
+      the pointed one is spoken. Only one block is visible at a time — these
+      are captions on a television, not a transcript — so each one also
+      records the slice of the script it covers. */
   function buildBulletin(n) {
     const feed = $('newsFeed');
     feed.textContent = '';
-    const words = [];
+    const words = [], lines = [];
     let say = '';
     for (const b of n.bulletin) {
       const line = document.createElement('div');
@@ -3178,16 +3300,74 @@
         words.push({ el: w.el, start: base + (starts[k] === undefined ? w.start : starts[k]) });
       });
       say += spoken + ' ';
+      lines.push({ el: line, who: b.who, to: say.length });
     }
     say = say.trim();
-    return { words, say, spoken: { starts: words.map(w => w.start), length: say.length } };
+    return { words, say, lines, spoken: { starts: words.map(w => w.start), length: say.length } };
+  }
+
+  /** Cut to whichever speaker is talking: the caption, the name in the lower
+      third, and the figure in the studio. The emoji at the head of `who` is
+      the presenter, and a reporter stands in the field rather than at a desk. */
+  function cutTo(bull, i) {
+    if (!bull || i === bull.at) return;
+    bull.at = i;
+    bull.lines.forEach((l, k) => l.el.classList.toggle('on', k === i));
+    const who = (bull.lines[i] || {}).who || '';
+    const role = (who.match(/^\s*(\p{Extended_Pictographic}\uFE0F?)/u) || [])[1] || '📺';
+    const name = who.replace(/^\s*\p{Extended_Pictographic}\uFE0F?\s*/u, '');
+    /* Whoever is on camera is a person, not the glyph in front of their name:
+       using `who`'s own emoji literally put a small television set at the
+       anchor desk. The role glyph goes in the corner of the figure instead. */
+    const anchor = $('newsAnchor');
+    anchor.textContent = '🧑\u200d💼';
+    const badge = document.createElement('span');
+    badge.className = 'role';
+    badge.textContent = role;
+    anchor.appendChild(badge);
+    $('newsWho').textContent = name;
+  }
+
+  /** The crawl. Written twice so the animation can loop on the seam without a
+      gap, and it carries the other weeks as well — a real ticker is never
+      about only the story on screen. */
+  function buildTicker(n) {
+    const bits = [n.headline];
+    for (const o of NEWS) if (o.id !== n.id) bits.push(`${hebDate(o.date)} · ${o.headline}`);
+    bits.push('REL WORLD · 110 קומות', 'משימה חדשה בכל שבוע');
+    const run = bits.join('   ◆   ') + '   ◆   ';
+    $('newsTicker').textContent = run + run;
   }
 
   function readBulletin() {
     const n = NEWS[S.newsAt];
     if (!n) return;
-    const b = buildBulletin(n);
-    Narrator.speak(b.say, p => highlightWords(b.words, b.spoken, p));
+    const screen = $('newsScreen');
+    const bull = buildBulletin(n);
+    S.bull = bull;
+    cutTo(bull, 0);
+
+    /* The opener runs before a word is spoken, the way it does on television:
+       bars, the slam, and only then the studio. */
+    screen.classList.remove('live', 'signoff-on');
+    screen.classList.add('sting-on');
+    clearTimeout(S.newsTimer);
+    S.newsTimer = setTimeout(() => {
+      if (S.state !== 'news') return;
+      screen.classList.remove('sting-on');
+      screen.classList.add('live');
+      Narrator.speak(bull.say, p => {
+        highlightWords(bull.words, bull.spoken, p);
+        const at = clamp(p, 0, 1) * bull.spoken.length;
+        let i = bull.lines.findIndex(l => at < l.to);
+        if (i < 0) i = bull.lines.length - 1;
+        cutTo(bull, i);
+      }, () => {
+        if (S.state !== 'news') return;
+        screen.classList.remove('live');
+        screen.classList.add('signoff-on');
+      });
+    }, 1750);
   }
 
   function openNews(i) {
@@ -3198,8 +3378,10 @@
     S.newsAt = i;
     $('newsDate').textContent = hebDate(n.date);
     $('newsHeadline').textContent = n.headline;
+    $('newsMonitor').textContent = n.headline;
     // the one part of the screen that is not satire, and it says so
     $('newsSource').textContent = `מה קרה באמת: ${n.source}`;
+    buildTicker(n);
     S.state = 'news';
     showScreen('news');
     track('news-open', { news: n.id });
@@ -3264,6 +3446,8 @@
   $('btnGo').addEventListener('click', startLevel);
   $('btnNewsGo').addEventListener('click', () => {
     Narrator.stop();
+    clearTimeout(S.newsTimer);
+    $('newsScreen').classList.remove('sting-on', 'live', 'signoff-on');
     openBriefing(newsIndex(S.newsAt), true);
   });
   $('btnNewsReplay').addEventListener('click', () => { Narrator.stop(); readBulletin(); });

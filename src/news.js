@@ -15,7 +15,10 @@
      source    what really happened, in one line. This is the real part.
      bulletin  the broadcast before the briefing: anchor, reporter, anchor.
                `text` is read on screen, `say` is the phonetic half, same rule
-               as a mission (see tools/vocalize.js).
+               as a mission (see tools/vocalize.js). Each entry is one CUT:
+               the caption changes with it and `who` names the speaker in the
+               lower third. The emoji at the head of `who` is the role badge
+               worn on the figure's shoulder, not the figure itself.
      level     an ordinary level object. Same shape as src/levels.js, same
                fields, same type numbers — it goes through the same machinery,
                plus two fields a career floor never has:
@@ -84,12 +87,14 @@
       "text": "המכונית עובדת, וזאת כבר לא הבעיה. כל הצוות עומד סביבה ומתווכח מי נוסע בה ראשון, והוויכוח הזה לא ייגמר לבד. חלק צ'אפחות הצלחה לכולם, עקוף את ראש הצוות, ותפוס את ההגה לפני כולם.",
       "say": "הַמֵכוֹנִית עוֹבֶדֶת, וֵזוֹת כּבָר לֹא הַבֵּעָיָה. כּוֹל הַצֶווֶת עוֹמֵד סבִיבָה וּמִתווַכֵּחַ מִי נוֹסֵעַ בָּה רִאשׁוֹן, וֵהַוִויכּוּחַ הַזֶה לֹא יִיגָמֵר לֵבַד. חַלֵק צַ'פּחוֹת הַצלָחָה לֵכוּלָם, עֲקוֹף אֶת רֹאשׁ הַצֶווֶת, וֵתפוֹס אֶת הַהֶגֶה לִפנֵי כּוּלָם.",
       "twist": {
-        "avatar": "🚗",
+        "avatar": "@car",
         "goal": "המסלול",
-        "goalName": "המסלול 🏁",
+        "goalName": "מסלול ה-180 🏁",
         "bonus": 45,
-        "announce": "אתה בפנים. המסלול בצד השני.",
-        "sayAnnounce": "אַתָה בִּפנִים. הַמַסלוּל בַּצַד הַשֵׁנִי."
+        "announce": "המכונית שלך. עכשיו לברוח למסלול.",
+        "sayAnnounce": "הַמֵכוֹנִית שֵׁלךָ. עַכשָׁיו לִברוֹחַ לַמַסלוּל.",
+        "goalIcon": "🏁",
+        "loop": true
       },
       "outro": {
         "text": "בסוף המכונית ברחה ונסעה בעצמה.",

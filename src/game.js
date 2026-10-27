@@ -165,6 +165,10 @@
      the player reads "הגע ל-המכונית @car". */
   const DRAWN_ICON = { '@car': '🚗' };
   const iconText = i => DRAWN_ICON[i] || i;
+  /* "to the X" in Hebrew swallows the article: ל + המסלול is למסלול, never
+     להמסלול. Goal names are written with the article because that is how they
+     read on the sign, so the preposition has to take it back off. */
+  const toThe = name => 'ל' + String(name).replace(/^ה/, '');
   // short sign-posting name, shown on the blinking waypoint arrow all game long
   const goalTag = i => STORY[i].goal || GOAL_FALLBACK[STORY[i].type];
 
@@ -1350,8 +1354,16 @@
     // the boss slap starts the sprint, so it has to be the last thing you do
     if (f.type === 2) list.push({ label: 'ואז: צ\'אפחה לבוסניק 👺', done: S.chadSlapped });
     const ready = list.every(o => o.done);
-    list.push({ label: `הגע ל-${f.tag} ${iconText(f.goalIcon || GOAL_ICON[f.type])}`,
-                done: false, goal: true });
+    const icon = iconText(f.goalIcon || GOAL_ICON[f.type]);
+    if (f.twist && !S.twisted) {
+      // both halves, up front: the second one is the point of the mission and
+      // a player who only ever reads "reach the car" never learns it exists
+      list.push({ label: `${icon} קח את ${f.tag}`, done: false, goal: true });
+      list.push({ label: `ואז: רוץ איתה ${toThe(f.twist.goal)} ${iconText(f.twist.goalIcon || '🏁')}`,
+                  done: false });
+    } else {
+      list.push({ label: `הגע ל-${f.tag} ${icon}`, done: false, goal: true });
+    }
     return { list, ready };
   }
 
@@ -1879,7 +1891,8 @@
       f.type === 1 ? `🪙 אסוף ${f.coinQuota} יחידות תקציב` : '',
       f.type === 2 ? `👺 ולבסוף: צ'אפחה לבוסניק ומירוץ ל-${f.tag}` : '',
       `🖐️ ${f.desks} צ'אפחות לעובדים`,
-      `🏁 יעד: ${f.tag} — ${f.goalName}`,
+      f.twist ? `${iconText(f.goalIcon || '🏁')} קח את ${f.tag}, ואז רוץ איתה ${toThe(f.twist.goal)}`
+              : `🏁 יעד: ${f.tag} — ${f.goalName}`,
       `⏳ ${Math.floor(f.time / 60)}:${String(f.time % 60).padStart(2, '0')} על השעון`
     ].filter(Boolean).map(line => `<div>${line}</div>`).join('');
     refreshStatus();          // the top bar already shows this floor's hardware
@@ -1936,7 +1949,11 @@
                                      f.spawns.length - 1)];
       S.rivals.push({
         x: spot.x, y: spot.y, acc: 0, stun: 0, state: 'roam',
-        speed: clamp(300 - S.level * 1.6 - i * 20, 150, 300),
+        /* ms between steps, so lower is faster. The player moves every 115ms
+           (MOVE_MS) and does not path perfectly; these do. At the old floor of
+           150 a top-floor manager was only a third slower than you while
+           walking straight at you, which is not a chase, it is a tax. */
+        speed: clamp(360 - S.level * 1.3 - i * 25, 200, 360),
         boss: i === 0, face: RIVAL_FACES[i % RIVAL_FACES.length]
       });
     }
@@ -2173,10 +2190,15 @@
         addParticles(nx, ny, S.floor.kit.hue, 10);
         break;
       case TILE.ELEVATOR: case TILE.MEETING: case TILE.HR:
-        if (objectives().ready) {
-          // a mission whose twist is still untaken spends this arrival on it
-          if (S.floor.twist && !S.twisted) applyTwist(nx, ny);
-          else if (S.floor.loop && !S.loopRun) startLoop();
+        /* Taking the thing is the first half of the mission, not the reward
+           for finishing it: "grab the car and run it to the track" has to let
+           you grab the car. The floor's own objectives gate the FINAL goal,
+           which is where they belong — otherwise the twist arrives after all
+           the work is done and most players never see it at all. */
+        if (S.floor.twist && !S.twisted) {
+          applyTwist(nx, ny);
+        } else if (objectives().ready) {
+          if (S.floor.loop && !S.loopRun) startLoop();
           else if (!S.loopRun) levelCleared();
         } else {
           Audio.deny();

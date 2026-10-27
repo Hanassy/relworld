@@ -1482,6 +1482,58 @@ function serve() {
     `${shots.icons.join(' ')} | ${shots.labels.join(' / ')}`);
   check('and the bulletin names who the story is about', shots.namesMusk);
 
+  /* ---- the two halves are gated the right way round ---- */
+  const gating = await page.evaluate(async () => {
+    const R = window.RelWorld, S = R.state;
+    R.openBriefing(R.newsIndex(0), true);
+    const chips = document.getElementById('bObjectives').textContent;
+    R.startLevel();
+    for (let i = 0; i < 80 && S.state !== 'playing'; i++) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    const f = S.floor;
+    const panel = document.getElementById('taskList').textContent;
+    const stepOnto = () => {
+      S.player.x = f.goal.x - 1; S.player.y = f.goal.y;
+      R.tryMove(1, 0);
+    };
+    // nothing done at all: taking the thing must still work
+    stepOnto();
+    const took = S.twisted;
+    // ...and the finish must NOT, until the floor's own work is done
+    stepOnto();
+    const earlyFinish = S.state === 'clear' || !!S.loopRun;
+    S.slaps = f.desks; S.partsGiven = f.desks; S.coinsGot = f.coinQuota;
+    S.chadSlapped = true;
+    stepOnto();
+    return { chips, panel, took, earlyFinish, lateFinish: !!S.loopRun };
+  });
+  check('the car can be taken with none of the floor done — that is the mission',
+    gating.took && !gating.earlyFinish && gating.lateFinish,
+    `took=${gating.took} earlyFinish=${gating.earlyFinish} lateFinish=${gating.lateFinish}`);
+  /* A player who only ever reads "reach the car" never learns there is a second
+     half, which is exactly the report that prompted this. */
+  check('and both halves are named before you start, and while you play',
+    /קח את/.test(gating.chips) && /מסלול/.test(gating.chips) &&
+    /קח את/.test(gating.panel) && /מסלול/.test(gating.panel),
+    gating.panel.replace(/\s+/g, ' ').trim().slice(0, 100));
+
+  /* ---- the managers have to be beatable on foot ---- */
+  const chase = await page.evaluate(() => {
+    const R = window.RelWorld;
+    const out = [];
+    for (const lvl of [0, 50, 109]) {
+      R.openBriefing(lvl, true);
+      // the first floors send nobody after you at all, so skip the empties
+      for (const r of R.state.rivals) out.push({ lvl: lvl + 1, ms: r.speed });
+    }
+    return { fastest: Math.min(...out.map(o => o.ms)),
+             perFloor: out.map(o => `L${o.lvl}:${o.ms}`) };
+  });
+  // the player steps every MOVE_MS = 115ms and paths badly; these path perfectly
+  check('the fastest manager is still meaningfully slower than the player',
+    chase.fastest >= 195, `${chase.perFloor.join(' / ')} ms per step vs the player's 115`);
+
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await browser.close();

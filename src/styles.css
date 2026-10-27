@@ -609,7 +609,7 @@ img.brand-logo { height: 14px; width: auto; vertical-align: -2px; }
 .anchor {
   position: absolute; left: 50%; bottom: 25%;
   transform: translateX(-50%);
-  font-size: clamp(84px, 15vw, 136px); line-height: 1;
+  font-size: clamp(150px, 27vw, 250px); line-height: 1;
   filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.8));
   z-index: 1;
 }

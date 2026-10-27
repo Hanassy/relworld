@@ -76,6 +76,13 @@
       </div>
     </div>
 
+    <!-- ===== משימת השבוע: מה שקרה באמת בעולם הטכנולוגיה ===== -->
+    <div id="newsPanel" class="panel news-panel" hidden>
+      <h3><span class="live-dot"></span> 📺 חדשות מתפרצות</h3>
+      <p class="news-intro">משימה אחת בשבוע, על פי מה שקרה באמת. לא חלק מהקריירה — אפשר לשחק בכל אחת מהן בכל רגע.</p>
+      <ul id="newsList"></ul>
+    </div>
+
     <div class="select-label">בחר קומה (מתוך מה שפתחת):</div>
     <div id="levelSelectCont"></div>
 
@@ -108,6 +115,56 @@
     <p class="disclaimer" id="openingDisclaimer"></p>
   </div>
 
+  <!-- ===== מהדורת חדשות: הכל קורה בתוך הטלוויזיה ===== -->
+  <div id="newsScreen" class="overlayScreen newsroom" hidden>
+    <div class="tv">
+      <div class="tv-glass">
+
+        <!-- האולפן -->
+        <div class="studio">
+          <div class="skyline"></div>
+          <div class="wallscreen" id="newsMonitor"></div>
+          <div class="anchor" id="newsAnchor">📺</div>
+          <div class="desk"></div>
+          <span class="channel-bug">REL</span>
+        </div>
+
+        <!-- פתיח: חדשות מתפרצות -->
+        <div class="sting" id="newsSting">
+          <div class="sting-bars"><i></i><i></i><i></i></div>
+          <div class="sting-word">חדשות מתפרצות</div>
+        </div>
+
+        <!-- סיומת -->
+        <div class="signoff" id="newsSignoff">REL WORLD · חדשות</div>
+
+        <!-- שליש תחתון -->
+        <div class="lower3">
+          <span class="l3-live"><span class="live-dot"></span>חי</span>
+          <span class="l3-who" id="newsWho"></span>
+          <span class="l3-head" id="newsHeadline">חדשות מתפרצות</span>
+          <span class="l3-date" id="newsDate"></span>
+        </div>
+
+        <!-- כתוביות: שורה אחת בכל פעם, עם ההדגשה שרצה עם הקריין -->
+        <div class="caption" id="newsFeed" aria-live="off"></div>
+
+        <!-- שורת החדשות הרצה -->
+        <div class="ticker"><div class="ticker-run" id="newsTicker"></div></div>
+        <div class="scanlines" aria-hidden="true"></div>
+      </div>
+      <div class="tv-stand" aria-hidden="true"></div>
+    </div>
+
+    <p id="newsSource" class="news-source"></p>
+    <div class="btn-row">
+      <button type="button" class="main-btn" id="btnNewsGo">לתדריך המשימה</button>
+      <button type="button" class="main-btn ghost" id="btnNewsReplay">🔁 הקרא שוב</button>
+      <button type="button" class="main-btn ghost" id="btnNewsMenu">לתפריט</button>
+    </div>
+    <p class="disclaimer" id="newsDisclaimer"></p>
+  </div>
+
   <!-- ===== תדריך קולנועי: המצלמה סוקרת את הקומה בזמן שהמשימה מוקראת ===== -->
   <div id="briefingScreen" class="overlayScreen cinematic" hidden>
     <div class="brief-top">
@@ -130,6 +187,7 @@
     <h1>✅ קומה הושלמה</h1>
     <div class="missionText" id="clearTitle"></div>
     <div id="clearStats" class="objectives"></div>
+    <div id="clearOutro" class="outro" hidden></div>
     <div id="clearQuote" class="quote"></div>
     <div class="btn-row">
       <button type="button" class="main-btn" id="btnNext">לקומה הבאה</button>
@@ -203,6 +261,7 @@
 <noscript><p style="color:#f55">המשחק דורש JavaScript פעיל.</p></noscript>
 <script src="src/brand.js?v=dev"></script>
 <script src="src/levels.js?v=dev"></script>
+<script src="src/news.js?v=dev"></script>
 <script src="src/game.js?v=dev"></script>
 </body>
 </html>

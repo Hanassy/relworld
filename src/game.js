@@ -82,9 +82,27 @@
      The 100 levels live in src/levels.js (window.REL_LEVELS), which is the
      single source of truth shared with the readable LEVELS.md. Each entry is
      themed on a real tech event and carries the matching quote. */
-  const LEVELS = (typeof window !== 'undefined' && window.REL_LEVELS) || [];
+  const CAREER = (typeof window !== 'undefined' && window.REL_LEVELS) || [];
+  /* Breaking news (src/news.js) is one mission a week built on something that
+     actually happened. They are played from the menu panel, not climbed, so
+     they are appended to LEVELS — which is what every lookup here is indexed
+     by — while FLOORS stays the height of the tower. Everything that counts
+     career progress keys on FLOORS, so a news mission moves nothing. */
+  const NEWS = (typeof window !== 'undefined' && window.REL_NEWS) || [];
+  const techFor = (typeof window !== 'undefined' && window.REL_TECH_FOR) || null;
+  const LEVELS = CAREER.concat(NEWS.map(n => {
+    // a news mission carries the hardware of its own year, same as a floor;
+    // levels.js already did this for the tower before handing the lookup over
+    const l = n.level;
+    l.era = l.era || l.q.year;
+    if (techFor && !l.kit) l.kit = techFor(l.era);
+    return l;
+  }));
+  const newsIndex = i => FLOORS + i;
+  const isNews = lvl => lvl >= FLOORS;
   const STORY = LEVELS.map((l, i) => ({
-    title: `קומה ${i + 1} · ${l.name}`,
+    title: i < CAREER.length ? `קומה ${i + 1} · ${l.name}`
+                             : `📺 חדשות מתפרצות · ${l.name}`,
     subtitle: l.sub,
     type: l.type,
     text: l.text,
@@ -99,7 +117,7 @@
   // per-level quote, 1:1 with the floor (no recycling)
   const QUOTES = LEVELS.map(l => l.q);
   // the tower is exactly as tall as the data, so adding a floor needs no edit here
-  const FLOORS = LEVELS.length;
+  const FLOORS = CAREER.length;
   unlockedLevel = Math.min(unlockedLevel, FLOORS - 1);   // a save from a shorter tower
   /* What you hand a worker is whatever was new in the year the mission is set
      in: a 1984 floor runs on 3.5" floppies, only the AI floors see a GPU. The
@@ -141,6 +159,16 @@
   const RIVAL_FACES = ['👺', '🤵', '👔'];
   const GOAL_ICON = ['🔼', '🗓️', '👩‍⚖'];
   const GOAL_FALLBACK = ['מעלית', 'ישיבה', 'HR'];
+  /* A goal marker beginning with @ is drawn on the canvas rather than typed,
+     because the emoji set has no white car. Anywhere the marker appears as
+     TEXT — the task panel, the briefing chips — it needs a glyph instead, or
+     the player reads "הגע ל-המכונית @car". */
+  const DRAWN_ICON = { '@car': '🚗' };
+  const iconText = i => DRAWN_ICON[i] || i;
+  /* "to the X" in Hebrew swallows the article: ל + המסלול is למסלול, never
+     להמסלול. Goal names are written with the article because that is how they
+     read on the sign, so the preposition has to take it back off. */
+  const toThe = name => 'ל' + String(name).replace(/^ה/, '');
   // short sign-posting name, shown on the blinking waypoint arrow all game long
   const goalTag = i => STORY[i].goal || GOAL_FALLBACK[STORY[i].type];
 
@@ -192,6 +220,26 @@
       });
     }
 
+    /* A short burst of white noise through a high-pass, which is as close to a
+       cymbal as an oscillator gets. Used by the news sting's landing. */
+    function noise(dur, vol, delay) {
+      if (!ctx || !options.sfx) return;
+      try {
+        const t0 = ctx.currentTime + (delay || 0);
+        const n = Math.floor(ctx.sampleRate * dur);
+        const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+        const src = ctx.createBufferSource(); src.buffer = buf;
+        const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 5000;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(vol, t0);
+        g.gain.exponentialRampToValueAtTime(0.01, t0 + dur);
+        src.connect(hp); hp.connect(g); g.connect(master);
+        src.start(t0); src.stop(t0 + dur);
+      } catch (e) { /* ignore */ }
+    }
+
     function sweep(from, to, dur, vol) {
       if (!ctx || !options.sfx) return;
       try {
@@ -232,6 +280,21 @@
       masterKey() { [600, 800, 1000].forEach((f, i) => tone(f, 'sine', 0.15, 0.3, i * 0.1)); },
       lock() { tone(300, 'square', 0.1, 0.3); tone(200, 'square', 0.1, 0.3, 0.1); },
       part() { tone(1500, 'square', 0.1, 0.15); tone(2000, 'square', 0.15, 0.15, 0.1); },
+      /* The news sting. Every bulletin on earth opens on the same idea: a
+         rising fanfare over a held bass, and a hit at the top. Four brass-ish
+         notes on a saw wave, a fifth underneath, and a cymbal-ish noise burst
+         on the landing — 1.6s, which is exactly as long as the opener runs. */
+      newsSting() {
+        const NOTES = [392, 523.25, 659.25, 783.99];       // G4 C5 E5 G5
+        NOTES.forEach((f, i) => {
+          tone(f, 'sawtooth', 0.26, 0.17, i * 0.17);
+          tone(f / 2, 'triangle', 0.3, 0.1, i * 0.17);
+        });
+        tone(196, 'triangle', 1.25, 0.16);                 // the bass under it all
+        tone(1046.5, 'sawtooth', 0.75, 0.2, 0.72);         // the hit
+        tone(1567.98, 'sine', 0.6, 0.1, 0.72);
+        noise(0.5, 0.16, 0.72);
+      },
       givePart() { tone(600, 'triangle', 0.1, 0.25); tone(800, 'triangle', 0.2, 0.25, 0.1); },
       slap() { tone(150, 'square', 0.1, 0.5); sweep(600, 200, 0.5, 0.25); },
       deny() { tone(180, 'square', 0.12, 0.25); tone(120, 'square', 0.18, 0.25, 0.1); },
@@ -1020,6 +1083,9 @@
     return { map, roomMask, start, spawns, goal, desks, coins, coinQuota, time, lockFixes,
              type: story.type, tag: goalTag(index), kit: kitFor(index),
              avatar: story.avatar, goalName: story.goalName || GOAL_NAME[story.type],
+             twist: (LEVELS[index] && LEVELS[index].twist) || null,
+             goalIcon: (LEVELS[index] && LEVELS[index].goalIcon) || null,
+             loop: false,
              scene: sceneName, palette: scene.pal, roomColor: scene.room, corrColor: scene.corr,
              screens, screenAt, wallTexts, textAt };
   }
@@ -1032,7 +1098,7 @@
   const SCREENS = {
     menu: $('startScreen'), opening: $('openingScreen'), briefing: $('briefingScreen'),
     clear: $('clearScreen'), paused: $('pauseScreen'), over: $('overScreen'),
-    legal: $('legalScreen')
+    legal: $('legalScreen'), news: $('newsScreen')
   };
 
   /* ======================= credit, sharing, notice =======================
@@ -1088,6 +1154,9 @@
     $('buildId').textContent = BUILD;
     $('legalText').textContent = BRAND.disclaimerFull;
     $('openingDisclaimer').textContent = BRAND.disclaimerShort;
+    // the weekly mission is about this week's news and the people in it, so
+    // the notice belongs on the broadcast more than anywhere else in the game
+    $('newsDisclaimer').textContent = BRAND.disclaimerShort;
     const line = where =>
       `${mark()} נבנה על ידי <a href="${BRAND.link(where)}" target="_blank" rel="noopener">` +
       `${BRAND.name}</a> · ${BRAND.tagline}`;
@@ -1190,7 +1259,12 @@
     rivals: [], chadSlapped: false,
     slaps: 0, partsGiven: 0, coinsGot: 0,
     timeLeft: 0,
-    camX: 0, camY: 350, scale: 0.13, buildingAlpha: 1, introT: 0,
+    camX: 0, camY: 350, scale: 0.13, buildingAlpha: 1, introT: 0, introDur: 0,
+    newsAt: 0,                  // which bulletin the news screen is showing
+    bull: null, newsTimer: 0,   // the bulletin being read, and its opener
+    twisted: false,             // has this mission's twist already been taken
+    loopRun: null,              // the car going round the stunt loop at the exit
+    cast: null,                 // the staged scene, from the briefing until they sit
     shake: 0, globalTime: 0,
     brief: { t: 0, shots: [], progress: 0, tourBase: -1, words: [], textLen: 1, wordIndex: -2 },
     introFrom: { x: 0, y: 350, scale: 0.13, alpha: 1 },
@@ -1199,6 +1273,8 @@
   };
 
   const INTRO_DUR = 1100;      // the tower dive now lives in the briefing
+  const LOOP_R = 34;           // the stunt loop at the exit, in world units
+  const LOOP_MS = 1500;        // how long the car takes to go round it
   const BRIEF_OPEN_MS = 4200;  // the tower reveal: long enough to actually watch
   // A 58-storey shell could only be framed by shrinking it to a sliver, and its
   // base ended up behind the briefing text. 36 storeys fit the clear band above
@@ -1278,13 +1354,24 @@
     // the boss slap starts the sprint, so it has to be the last thing you do
     if (f.type === 2) list.push({ label: 'ואז: צ\'אפחה לבוסניק 👺', done: S.chadSlapped });
     const ready = list.every(o => o.done);
-    list.push({ label: `הגע ל-${f.tag} ${GOAL_ICON[f.type]}`, done: false, goal: true });
+    const icon = iconText(f.goalIcon || GOAL_ICON[f.type]);
+    if (f.twist && !S.twisted) {
+      // both halves, up front: the second one is the point of the mission and
+      // a player who only ever reads "reach the car" never learns it exists
+      list.push({ label: `${icon} קח את ${f.tag}`, done: false, goal: true });
+      list.push({ label: `ואז: רוץ איתה ${toThe(f.twist.goal)} ${iconText(f.twist.goalIcon || '🏁')}`,
+                  done: false });
+    } else {
+      list.push({ label: `הגע ל-${f.tag} ${icon}`, done: false, goal: true });
+    }
     return { list, ready };
   }
 
   function refreshStatus() {
     $('score').textContent = S.score;
-    $('levelDisplay').textContent = S.level + 1;
+    // the floor counter reads 📺 on a news mission rather than inventing a
+    // storey above the roof
+    $('levelDisplay').textContent = isNews(S.level) ? '📺' : String(S.level + 1);
     $('keys').textContent = S.keys;
     $('parts').textContent = S.parts;
     if (S.floor) {
@@ -1335,11 +1422,267 @@
     // you cannot be caught before you have had a chance to move
     S.player = { x: f.start.x, y: f.start.y, animY: 0, invuln: ARRIVAL_GRACE };
     S.slaps = 0; S.partsGiven = 0; S.coinsGot = 0; S.chadSlapped = false;
+    S.twisted = false; S.loopRun = null;
     S.combo = 0; S.comboTimer = 0;
     S.particles = []; S.texts = []; S.slapFx = [];
     S.timeLeft = f.time;
     spawnRivals();
     return f;
+  }
+
+  /* ======================= the briefing cast =======================
+     The briefing used to pan across an empty floor plan while the mission was
+     read out loud. What it shows now is the room a minute before the mission
+     starts: a stand-up lined up beside the manager, a presentation with
+     somebody at the screen and the rest round the table, a huddle at the
+     racks. Then you press "לרדת לשטח" and they walk to their desks.
+
+     None of this is new artwork. It is the same emoji the floor already draws,
+     on the same isometric grid, so a staged scene costs a formation and a few
+     lines of chatter instead of a sprite sheet. */
+
+  const STAGE_FOR = { office: 'standup', board: 'present', cinema: 'present',
+                      court: 'present', lab: 'huddle', bank: 'huddle' };
+
+  /* Where everyone stands, as tile offsets from the anchor. The lead stands on
+     the anchor itself and the crowd faces them. In this projection a run along
+     +y goes down-left across the screen, which is what reads as "a row". */
+  const FORMATION = {
+    standup: { crowd: [[2, -2], [2, -1], [2, 0], [2, 1], [2, 2], [3, -2], [3, 2]] },
+    present: { crowd: [[2, -2], [2, 2], [3, -2], [3, 2], [4, -1], [4, 1]], table: [3, 0] },
+    huddle:  { crowd: [[1, -2], [2, -1], [2, 1], [1, 2], [-1, 1], [-1, -1]] }
+  };
+
+  /* What they are saying. Short enough to read at briefing zoom, and timed so
+     the bubbles come and go instead of all shouting at once. */
+  const CHATTER = {
+    standup: ['סטטוס?', 'בלוקר', 'מחר', 'כמעט', 'תלוי בהם', 'עוד ספרינט', 'בדמו'],
+    present: ['שקף הבא', 'סינרגיה', 'ברבעון', 'שאלה', 'ROI', 'בגדול', 'נסנכרן'],
+    huddle:  ['נפל', 'ריסטרט', 'בלוגים', 'לא אני', 'פרודקשן', 'אצלי עובד', 'מי דחף?']
+  };
+  const LEAD_LINE = { standup: 'בוקר טוב', present: 'שקף 1', huddle: 'מי נגע?' };
+
+  /** A free tile at or near (x, y). Formations are laid out on an ideal grid
+      and then nudged onto whatever floor the generator actually produced. */
+  function freeNear(map, taken, x, y) {
+    const ok = (ax, ay) => ax > 0 && ay > 0 && ax < MAP_W - 1 && ay < MAP_H - 1 &&
+      (map[ay][ax] === TILE.FLOOR || map[ay][ax] === TILE.ROOM) &&
+      !taken.has(ay * MAP_W + ax);
+    if (ok(x, y)) return { x, y };
+    for (let r = 1; r <= 3; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          if (ok(x + dx, y + dy)) return { x: x + dx, y: y + dy };
+        }
+      }
+    }
+    return null;
+  }
+
+  /** Desks grouped into teams, biggest first, so a formation is staged beside
+      a crowd rather than beside one chair. Shared with the briefing camera. */
+  function deskClusters(map) {
+    const clusters = [];
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        if (!isDesk(map[y][x])) continue;
+        const c = clusters.find(c => Math.abs(c.x - x) <= 4 && Math.abs(c.y - y) <= 4);
+        if (c) { c.x = (c.x * c.n + x) / (c.n + 1); c.y = (c.y * c.n + y) / (c.n + 1); c.n++; }
+        else clusters.push({ x, y, n: 1 });
+      }
+    }
+    return clusters.sort((a, b) => b.n - a.n);
+  }
+
+  /** Stage the people for this floor: who stands where, what they are saying,
+      and which desk each of them walks to once the mission starts. */
+  function buildCast(f) {
+    const style = STAGE_FOR[f.scene] || 'standup';
+    const form = FORMATION[style];
+    const map = f.map;
+
+    /* A presentation belongs in front of the screen the floor already draws.
+       Anything else belongs beside the biggest team on the floor. */
+    const big = deskClusters(map)[0];
+    let ax, ay;
+    if (style === 'present' && f.screens && f.screens.length) {
+      const sc = f.screens[Math.floor(f.screens.length / 2)];
+      ax = sc.x + 1; ay = sc.y;
+    } else if (big) {
+      ax = Math.round(big.x) - 2; ay = Math.round(big.y);
+    } else {
+      ax = f.start.x; ay = f.start.y;
+    }
+
+    const taken = new Set();
+    const lead = freeNear(map, taken, ax, ay);
+    if (!lead) return null;
+    taken.add(lead.y * MAP_W + lead.x);
+
+    // the desks they will take when it is over, nearest to the huddle first
+    const seats = [];
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) if (isDesk(map[y][x])) seats.push({ x, y });
+    }
+    if (!seats.length) return null;
+    seats.sort((a, b) => Math.hypot(a.x - lead.x, a.y - lead.y) -
+                         Math.hypot(b.x - lead.x, b.y - lead.y));
+
+    /* The crowd is whoever this floor's year puts at a desk: clerks before the
+       computer arrived, developers after. Same rule the desks themselves use,
+       so nobody changes species on the walk over. */
+    const paper = f.kit.age === 'paper' || f.kit.age === 'arrival';
+    const glyph = paper ? '🧑‍💼' : '👨‍💻';
+    const chat = CHATTER[style];
+
+    const actors = [{
+      x: lead.x, y: lead.y, sx: lead.x, sy: lead.y, glyph: '🧑‍💼', lead: true,
+      say: LEAD_LINE[style], at: 0, seat: null
+    }];
+    form.crowd.forEach((off, i) => {
+      if (i >= seats.length) return;
+      const spot = freeNear(map, taken, lead.x + off[0], lead.y + off[1]);
+      if (!spot) return;
+      taken.add(spot.y * MAP_W + spot.x);
+      actors.push({
+        x: spot.x, y: spot.y, sx: spot.x, sy: spot.y, glyph, lead: false,
+        say: chat[i % chat.length], at: 500 + i * 850, seat: seats[i]
+      });
+    });
+    if (actors.length < 2) return null;
+
+    let table = null;
+    if (form.table) {
+      const t = freeNear(map, new Set(), lead.x + form.table[0], lead.y + form.table[1]);
+      if (t) table = t;
+    }
+    const screen = (style === 'present' && f.screens && f.screens.length)
+      ? f.screens[Math.floor(f.screens.length / 2)] : null;
+
+    // the desks still standing empty, so the floor does not draw a worker at a
+    // desk whose worker is currently at the stand-up
+    const empty = new Set();
+    for (const a of actors) if (a.seat) empty.add(a.seat.y * MAP_W + a.seat.x);
+
+    return { style, actors, table, screen, empty, lead, walk: 0 };
+  }
+
+  /** Walk the cast to their desks. `k` runs 0..1 across the dive-in, and each
+      actor leaves a beat after the one before so it reads as a room emptying
+      rather than a formation teleporting. */
+  function updateCast(k) {
+    const c = S.cast;
+    if (!c) return;
+    c.walk = k;
+    const crowd = c.actors.filter(a => a.seat);
+    crowd.forEach((a, i) => {
+      const lag = i * 0.055;
+      const e = smooth(clamp((k - lag) / Math.max(0.2, 1 - lag), 0, 1));
+      a.x = a.sx + (a.seat.x - a.sx) * e;
+      a.y = a.sy + (a.seat.y - a.sy) * e;
+      a.arrived = e >= 1;
+      if (a.arrived) c.empty.delete(a.seat.y * MAP_W + a.seat.x);
+    });
+  }
+
+  /** One of the staged extras, with their line above their head. */
+  function drawActor(a) {
+    const px = cx0 + (a.x - a.y) * TW / 2 - S.camX;
+    const py = cy0 + (a.x + a.y) * TH / 2 - S.camY;
+    const walking = S.cast.walk > 0 && a.seat && !a.arrived;
+    // a walk cycle costs one sine: a bob, and a lean into the direction of travel
+    const bob = walking ? Math.abs(Math.sin(S.globalTime * 0.35)) * 5
+                        : Math.sin(S.globalTime * 0.08 + a.sx) * 1.5;
+    const fade = a.arrived ? 0 : 1;
+    if (fade <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = fade;
+    groundShadow(px, py, 11);
+    ctx.font = (a.lead ? '27px' : '24px') + ' Arial';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.fillText(a.glyph, px, py - 6 - bob);
+    ctx.restore();
+    if (walking || S.state !== 'briefing' || !a.say) return;
+    // the line fades in on its own beat and then holds, so the room fills up
+    // with talk over the first few seconds instead of all at once
+    const age = S.brief.t - a.at;
+    if (age < 0) return;
+    chatBubble(px, py - 40 - bob, a.say, clamp(age / 400, 0, 1) * (a.lead ? 1 : 0.9));
+  }
+
+  /** A line of speech. Warm and small, so it never competes with the cyan the
+      goal sign owns. */
+  function chatBubble(x, y, text, alpha) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold 11px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(text).width + 14;
+    ctx.fillStyle = 'rgba(250,247,238,0.94)';
+    ctx.strokeStyle = 'rgba(40,32,18,0.55)';
+    ctx.lineWidth = 1;
+    roundRectPath(x - w / 2, y - 9, w, 18, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - 4, y + 8); ctx.lineTo(x + 4, y + 8); ctx.lineTo(x, y + 15);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#20180c';
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  }
+
+  /** The meeting table: the same isometric diamond a desk is built from, four
+      tiles wide, with the things that are always on one. */
+  function drawMeetingTable(x, y) {
+    const px = cx0 + (x - y) * TW / 2 - S.camX;
+    const py = cy0 + (x + y) * TH / 2 - S.camY;
+    const z = 13;
+    groundShadow(px, py + 6, 44);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(px, py - z - 10); ctx.lineTo(px + 46, py - z + 13);
+    ctx.lineTo(px, py - z + 36); ctx.lineTo(px - 46, py - z + 13);
+    ctx.closePath();
+    ctx.fillStyle = '#7c5c3f';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.font = '13px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('📄', px - 20, py - z + 18);
+    ctx.fillText('☕', px + 4, py - z + 9);
+    ctx.fillText('📄', px + 22, py - z + 20);
+    ctx.restore();
+  }
+
+  /** The projector beam, from whoever is presenting to the screen the floor
+      already has on its wall. Pure translucency over the floor, no new art. */
+  function drawProjector() {
+    const c = S.cast;
+    if (!c || !c.screen || c.walk > 0) return;
+    const a = c.actors[0];
+    const ax = cx0 + (a.x - a.y) * TW / 2 - S.camX;
+    const ay = cy0 + (a.x + a.y) * TH / 2 - S.camY - 18;
+    const sx = cx0 + (c.screen.x - c.screen.y) * TW / 2 - S.camX;
+    const sy = cy0 + (c.screen.x + c.screen.y) * TH / 2 - S.camY - ZH / 2;
+    const flick = 0.1 + 0.05 * Math.sin(S.globalTime * 0.3);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createLinearGradient(ax, ay, sx, sy);
+    g.addColorStop(0, `rgba(200,230,255,${flick})`);
+    g.addColorStop(1, 'rgba(200,230,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(sx - 26, sy - 16);
+    ctx.lineTo(sx + 26, sy + 16);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
 
   /** Camera shots for the briefing: the whole floor first, then the people. */
@@ -1349,18 +1692,17 @@
     const wide = { x: w.camX, y: w.camY, scale: w.scale };
     const shots = [wide];
 
-    // group desks into crowds, so the camera frames a team and not one chair
-    const clusters = [];
-    for (let y = 0; y < MAP_H; y++) {
-      for (let x = 0; x < MAP_W; x++) {
-        if (!isDesk(f.map[y][x])) continue;
-        const c = clusters.find(c => Math.abs(c.x - x) <= 4 && Math.abs(c.y - y) <= 4);
-        if (c) { c.x = (c.x * c.n + x) / (c.n + 1); c.y = (c.y * c.n + y) / (c.n + 1); c.n++; }
-        else clusters.push({ x, y, n: 1 });
-      }
+    /* The staged scene is the point of the briefing now, so the camera goes
+       there first and sits close enough to read the speech bubbles. */
+    if (S.cast) {
+      const l = S.cast.lead;
+      shots.push(Object.assign(iso(l.x + 1.5, l.y), { scale: 2.0 }));
+      shots.push(Object.assign(iso(l.x + 2, l.y), { scale: 1.8 }));
     }
-    clusters.sort((a, b) => b.n - a.n);
-    for (const c of clusters.slice(0, 2)) shots.push(Object.assign(iso(c.x, c.y), { scale: 1.5 }));
+    // then the teams, framed as crowds rather than one chair at a time
+    for (const c of deskClusters(f.map).slice(0, 2)) {
+      shots.push(Object.assign(iso(c.x, c.y), { scale: 1.5 }));
+    }
     if (S.rivals.length) shots.push(Object.assign(iso(S.rivals[0].x, S.rivals[0].y), { scale: 1.75 }));
     // close on the exit and hold it: the last thing you see is where to go
     const goalShot = Object.assign(iso(f.goal.x, f.goal.y), { scale: 1.55 });
@@ -1536,10 +1878,11 @@
       S.score = 0; S.keys = 0; S.parts = 0; S.masterKey = false;
       S.strikes = 0; S.runFloors = 0;
     }
-    S.level = clamp(level, 0, FLOORS - 1);
+    S.level = clamp(level, 0, LEVELS.length - 1);
     S.scoreAtStart = S.score;
 
     const f = prepareFloor();
+    S.cast = buildCast(f);          // who is standing where while this is read
     const story = STORY[S.level];
     $('bTitle').textContent = story.title;
     $('bSubtitle').textContent = story.subtitle;
@@ -1548,7 +1891,8 @@
       f.type === 1 ? `🪙 אסוף ${f.coinQuota} יחידות תקציב` : '',
       f.type === 2 ? `👺 ולבסוף: צ'אפחה לבוסניק ומירוץ ל-${f.tag}` : '',
       `🖐️ ${f.desks} צ'אפחות לעובדים`,
-      `🏁 יעד: ${f.tag} — ${f.goalName}`,
+      f.twist ? `${iconText(f.goalIcon || '🏁')} קח את ${f.tag}, ואז רוץ איתה ${toThe(f.twist.goal)}`
+              : `🏁 יעד: ${f.tag} — ${f.goalName}`,
       `⏳ ${Math.floor(f.time / 60)}:${String(f.time % 60).padStart(2, '0')} על השעון`
     ].filter(Boolean).map(line => `<div>${line}</div>`).join('');
     refreshStatus();          // the top bar already shows this floor's hardware
@@ -1569,8 +1913,21 @@
     prepareFloor();
     S.score = S.scoreAtStart;
     // the briefing already showed the floor: dive in from wherever it ended up
+    /* With a staged scene, cut back to the room before diving. The briefing
+       ends on the exit, which is the right last thing to see but the wrong
+       place to watch from: the walk to the desks happens where they are
+       standing, and a dive that starts at the exit shows none of it. */
+    if (S.cast) {
+      const l = S.cast.lead;
+      S.camX = (l.x + 1.5 - l.y) * TW / 2;
+      S.camY = (l.x + 1.5 + l.y) * TH / 2;
+      S.scale = 1.9 / (smallScreen ? 1.5 : 1);
+      S.buildingAlpha = 0;
+    }
     S.introFrom = { x: S.camX, y: S.camY, scale: S.scale, alpha: S.buildingAlpha };
     S.introT = 0;
+    // long enough to watch them reach their desks, when there is anyone to watch
+    S.introDur = S.cast ? 2600 : INTRO_DUR;
     S.state = 'intro';
     lastShownSecond = -1; lastTaskHTML = '';
     updateHUD();
@@ -1592,14 +1949,86 @@
                                      f.spawns.length - 1)];
       S.rivals.push({
         x: spot.x, y: spot.y, acc: 0, stun: 0, state: 'roam',
-        speed: clamp(300 - S.level * 1.6 - i * 20, 150, 300),
+        /* ms between steps, so lower is faster. The player moves every 115ms
+           (MOVE_MS) and does not path perfectly; these do. At the old floor of
+           150 a top-floor manager was only a third slower than you while
+           walking straight at you, which is not a chase, it is a tax. */
+        speed: clamp(360 - S.level * 1.3 - i * 25, 200, 360),
         boss: i === 0, face: RIVAL_FACES[i % RIVAL_FACES.length]
       });
     }
   }
 
+  /* ======================= the twist =======================
+     Every breaking-news mission owes the player one thing the tower cannot do,
+     and `twist` is how a mission declares it instead of coding it. Reaching
+     the goal with the objectives done normally clears the floor. A mission
+     with an untaken twist spends that arrival on the twist instead: you take
+     the thing, you become it, and the goal moves to the far side of the floor.
+     Then the next arrival clears, as usual. */
+  function farthestTile(fromX, fromY) {
+    // the player can open doors, so the far side has to be measured through
+    // them — otherwise the new goal lands behind the nearest locked one
+    const d = distanceField(S.map, fromX, fromY, true);
+    let best = null, far = -1;
+    for (let y = 1; y < MAP_H - 1; y++) {
+      for (let x = 1; x < MAP_W - 1; x++) {
+        const v = S.map[y][x];
+        if (v !== TILE.FLOOR && v !== TILE.ROOM) continue;
+        if (d[y][x] === Infinity || d[y][x] <= far) continue;
+        far = d[y][x]; best = { x, y };
+      }
+    }
+    return best ? { spot: best, steps: far } : null;
+  }
+
+  function applyTwist(atX, atY) {
+    const f = S.floor, tw = f.twist;
+    const far = farthestTile(atX, atY);
+    if (!far) { levelCleared(); return; }     // nowhere to go: just finish
+
+    S.map[atY][atX] = floorTileUnder(atX, atY);     // the thing is yours now
+    S.map[far.spot.y][far.spot.x] = GOAL_TILE[f.type];
+    f.goal = far.spot;
+    f.tag = tw.goal;
+    f.goalName = tw.goalName;
+    f.goalIcon = tw.goalIcon || null;
+    f.loop = !!tw.loop;                             // a stunt track at the exit
+    f.avatar = tw.avatar;                           // ...and you are it
+    S.twisted = true;
+    S.timeLeft += tw.bonus || 45;                   // the second half is a drive
+    Audio.part();
+    award(300, atX, atY, tw.avatar + ' ' + tw.goal, '#ffd166');
+    addParticles(atX, atY, '#ffd166', 40);
+    addText(atX, atY - 1, tw.announce, '#fff');
+    if (tw.announce) Narrator.speak(tw.sayAnnounce || tw.announce);
+    refreshStatus();
+  }
+
+  /* The exit on the car mission is a stunt loop, so arriving at it is not
+     walking through a door: the car rides up the inside of the ring, comes
+     over the top upside down and lands, and only then does the floor clear.
+     Input is locked for the ride — you have already won, you are watching. */
+  function startLoop() {
+    S.loopRun = { t: 0 };
+    Audio.part();
+  }
+
+  function updateLoop(dt) {
+    if (!S.loopRun) return;
+    S.loopRun.t += dt / LOOP_MS;
+    if (S.loopRun.t >= 1) {
+      const g = S.floor.goal;
+      addParticles(g.x, g.y, '#ffd166', 50);
+      award(500, g.x, g.y, '360°', '#ffd166');
+      S.loopRun = null;
+      levelCleared();
+    }
+  }
+
   function levelCleared() {
     S.state = 'clear';
+    S.cast = null;
     Audio.win();
     const timeBonus = Math.round(S.timeLeft) * 10;
     const strikeBonus = (MAX_STRIKES - S.strikes) * 250;
@@ -1619,23 +2048,46 @@
       `<div class="good">🛡️ בונוס ללא אזהרות: +${strikeBonus}</div>`,
       `<div>📈 ניקוד מצטבר: <b>${S.score}</b></div>`
     ].join('');
+    /* A news mission signs off with its own punchline before the real quote.
+       Both are read aloud as one script, so the read-along runs straight
+       through from the joke into the thing somebody actually said. */
+    const outro = (LEVELS[S.level] || {}).outro;
+    const oBox = $('clearOutro');
+    oBox.hidden = !outro;
+    oBox.textContent = '';
+    let words = [], script = '';
+    if (outro) {
+      const say = outro.say || outro.text;
+      const starts = wordStarts(say);
+      splitWords(oBox, outro.text).forEach((w, k) => {
+        words.push({ el: w.el, start: starts[k] === undefined ? w.start : starts[k] });
+      });
+      script = say + ' ';
+    }
     const q = QUOTES[S.level % QUOTES.length];
-    track('floor-cleared', { floor: S.level + 1 });
+    if (isNews(S.level)) track('news-cleared', { news: NEWS[S.level - FLOORS].id });
+    else track('floor-cleared', { floor: S.level + 1 });
     const quote = showQuote($('clearQuote'), q);
-    $('btnNext').textContent = S.level >= FLOORS - 1 ? 'לסיום הקריירה' : 'לקומה הבאה';
+    const base = script.length;
+    words = words.concat(quote.words.map(w => ({ el: w.el, start: base + w.start })));
+    script += quote.script;
+    const readAlong = { words, spoken: { starts: words.map(w => w.start), length: script.length } };
+    $('btnNext').textContent = isNews(S.level) ? '📺 חזרה לחדשות'
+      : S.level >= FLOORS - 1 ? 'לסיום הקריירה' : 'לקומה הבאה';
     refreshStatus();
     setTimeout(() => {
       if (S.state !== 'clear') return;
       showScreen('clear');
       // the quote is the punchline of the floor, so it is read out loud —
       // name and year included — with the words lighting up as they are said
-      Narrator.speak(quote.script, p => highlightWords(quote.words, quote.spoken, p));
+      Narrator.speak(script, p => highlightWords(readAlong.words, readAlong.spoken, p));
     }, 900);
   }
 
   function gameOver(reason, victory) {
     if (S.state === 'over') return;
     S.state = 'over';
+    S.cast = null;
     S.scoreSaved = false;
     if (victory) Audio.win(); else Audio.fired();
     if (S.score > bestScore) { bestScore = S.score; store.set('rel_best', bestScore); }
@@ -1658,6 +2110,10 @@
     Narrator.stop();
     S.state = 'menu';
     S.floor = null;
+    S.cast = null;
+    clearTimeout(S.newsTimer);          // the opener must not fire over the menu
+    if (S.bull) clearInterval(S.bull.shotTimer);
+    $('newsScreen').classList.remove('sting-on', 'live', 'signoff-on');
     S.camX = 0; S.camY = 350; S.scale = 0.13; S.buildingAlpha = 1;
     renderMenu();
     showScreen('menu');
@@ -1675,7 +2131,8 @@
 
   /* ======================= player actions ======================= */
   function tryMove(dx, dy) {
-    if (S.state !== 'playing') return false;
+    // no steering while the car is upside down: you have won, you are watching
+    if (S.state !== 'playing' || S.loopRun) return false;
     const nx = S.player.x + dx, ny = S.player.y + dy;
     if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) return false;
     const t = S.map[ny][nx];
@@ -1733,8 +2190,17 @@
         addParticles(nx, ny, S.floor.kit.hue, 10);
         break;
       case TILE.ELEVATOR: case TILE.MEETING: case TILE.HR:
-        if (objectives().ready) levelCleared();
-        else {
+        /* Taking the thing is the first half of the mission, not the reward
+           for finishing it: "grab the car and run it to the track" has to let
+           you grab the car. The floor's own objectives gate the FINAL goal,
+           which is where they belong — otherwise the twist arrives after all
+           the work is done and most players never see it at all. */
+        if (S.floor.twist && !S.twisted) {
+          applyTwist(nx, ny);
+        } else if (objectives().ready) {
+          if (S.floor.loop && !S.loopRun) startLoop();
+          else if (!S.loopRun) levelCleared();
+        } else {
           Audio.deny();
           addText(nx, ny, 'עוד לא סיימת!', '#ff5555');
         }
@@ -1925,8 +2391,13 @@
 
     if (S.state === 'intro') {
       S.introT += dt;
-      const k = clamp(S.introT / INTRO_DUR, 0, 1);
-      const e = smooth(k);
+      const k = clamp(S.introT / (S.introDur || INTRO_DUR), 0, 1);
+      /* The dive waits for them. The camera holds on the room for the first
+         stretch while they walk to their desks, and only then flies to the
+         player — cutting away mid-walk wastes the one shot that shows it. */
+      const hold = S.cast ? 0.62 : 0;
+      updateCast(hold ? clamp(k / hold, 0, 1) : 1);
+      const e = smooth(hold ? clamp((k - hold) / (1 - hold), 0, 1) : k);
       const from = S.introFrom;
       const target = (inRoom(p.x, p.y) ? 2.3 : 1.25) / (smallScreen ? 1.5 : 1);
       S.scale = from.scale + e * (target - from.scale);
@@ -1934,7 +2405,7 @@
       S.camY = from.y + e * (pcy - from.y);
       S.buildingAlpha = from.alpha * (1 - e);
       clampCameraToFloor();
-      if (k >= 1) { S.state = 'playing'; S.buildingAlpha = 0; showScreen(null); }
+      if (k >= 1) { S.state = 'playing'; S.buildingAlpha = 0; S.cast = null; showScreen(null); }
       return;
     }
 
@@ -2152,6 +2623,71 @@
     ctx.restore();
   }
 
+  /** The car, drawn rather than borrowed from the emoji font. Three reasons
+      it is worth the forty lines: there is no white car in the emoji set, the
+      one that exists is red and differs on every platform, and a drawn car can
+      be rotated — which is the whole point of the loop at the exit. */
+  function drawCar(x, y, angle, scale) {
+    const k = scale || 1;
+    ctx.save();
+    ctx.translate(x, y);
+    if (angle) ctx.rotate(angle);
+    ctx.scale(k, k);
+    ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 6;
+    // body: a low wedge, because this one is supposed to be a sports car
+    ctx.beginPath();
+    ctx.moveTo(-17, 3);
+    ctx.quadraticCurveTo(-18, -4, -10, -5);
+    ctx.quadraticCurveTo(-5, -12, 3, -12);
+    ctx.quadraticCurveTo(12, -12, 15, -5);
+    ctx.quadraticCurveTo(19, -4, 18, 3);
+    ctx.closePath();
+    ctx.fillStyle = '#f4f6f8';
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#9aa6b2'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.beginPath();                                 // windscreen and cabin
+    ctx.moveTo(-7, -5);
+    ctx.quadraticCurveTo(-4, -10, 2, -10);
+    ctx.quadraticCurveTo(9, -10, 11, -5);
+    ctx.closePath();
+    ctx.fillStyle = '#2d4a63';
+    ctx.fill();
+    ctx.fillStyle = '#c8d2da';                       // the shut line along the flank
+    ctx.fillRect(-12, -1, 24, 1.2);
+    for (const wx of [-9, 9]) {                      // wheels
+      ctx.beginPath();
+      ctx.arc(wx, 4, 4.2, 0, Math.PI * 2);
+      ctx.fillStyle = '#15181c'; ctx.fill();
+      ctx.beginPath();
+      ctx.arc(wx, 4, 1.7, 0, Math.PI * 2);
+      ctx.fillStyle = '#8a949e'; ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** The stunt loop that waits at the exit: a vertical ring the car goes round
+      and comes off upside down. Two arcs make the track, a third the shading. */
+  function drawLoop(x, y) {
+    const R = LOOP_R, cy = y - R;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 13;
+    ctx.beginPath(); ctx.ellipse(x, cy, R, R, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = '#d85a2a'; ctx.lineWidth = 9;
+    ctx.beginPath(); ctx.ellipse(x, cy, R, R, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1.6;
+    ctx.setLineDash([6, 7]);
+    ctx.beginPath(); ctx.ellipse(x, cy, R, R, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = '#8c3a1a'; ctx.lineWidth = 5;   // the legs holding it up
+    ctx.beginPath();
+    ctx.moveTo(x - R + 2, cy + R * 0.7); ctx.lineTo(x - R - 6, y + 4);
+    ctx.moveTo(x + R - 2, cy + R * 0.7); ctx.lineTo(x + R + 6, y + 4);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   /** Goal tile: glowing floor pool, expanding ring, icon and a blinking sign. */
   function drawGoalBeacon(x, y, val, ready) {
     const t = S.globalTime;
@@ -2174,8 +2710,15 @@
 
     ctx.font = '26px Arial';
     ctx.fillStyle = '#fff';
-    const icon = val === TILE.ELEVATOR ? GOAL_ICON[0] : val === TILE.MEETING ? GOAL_ICON[1] : GOAL_ICON[2];
-    ctx.fillText(icon, x, y - 8);
+    /* The marker says what you are walking towards. A mission that renamed
+       its goal has to be able to rename the picture too: the car mission is
+       type 2, and without this the thing waiting at the car was the HR
+       lawyer. '@car' is drawn rather than typed — see drawCar. */
+    const icon = (S.floor && S.floor.goalIcon) ||
+      (val === TILE.ELEVATOR ? GOAL_ICON[0] : val === TILE.MEETING ? GOAL_ICON[1] : GOAL_ICON[2]);
+    const iy = (S.floor && S.floor.loop) ? y + 6 : y - 8;   // clear of the ring
+    if (icon === '@car') drawCar(x, iy - 2, 0, 0.8);
+    else ctx.fillText(icon, x, iy);
     signPlate(x, y - 56 + Math.sin(t * 0.12) * 4, S.floor ? S.floor.tag : '', 0.45 + 0.55 * blink, true);
   }
 
@@ -2335,6 +2878,7 @@
   /* ======================= main render ======================= */
   function draw(dt) {
     updateCamera(dt);
+    updateLoop(dt);
     ctx.clearRect(0, 0, VIEW_W, VIEW_H);
 
     const sx = S.shake > 0 ? (Math.random() - 0.5) * (15 / S.scale) : 0;
@@ -2405,6 +2949,7 @@
           else if (val === TILE.KEY) ctx.fillText('🔑', pX, pY + bop);
           else if (val === TILE.MKEY) ctx.fillText('🗝', pX, pY + bop);
           else if (val === TILE.ELEVATOR || val === TILE.MEETING || val === TILE.HR) {
+            if (S.floor.loop) drawLoop(pX, pY);
             drawGoalBeacon(pX, pY, val, ready);
           } else if (val === TILE.PART) {
             // the part is labelled, and "ניקוב" is far wider than "CD", so the
@@ -2462,8 +3007,12 @@
               ctx.restore();
             }
             const hop = sad ? 0 : Math.max(0, Math.sin(S.globalTime * 0.25) * 4);
-            ctx.font = '24px Arial'; ctx.fillStyle = '#fff';
-            ctx.fillText(sad ? '😭' : paper ? '🧑‍💼' : '👨‍💻', pX, pY - 10 - hop);
+            // ...and nobody is sitting here while they are all at the stand-up
+            const away = S.cast && S.cast.empty.has(y * MAP_W + x);
+            if (!away) {
+              ctx.font = '24px Arial'; ctx.fillStyle = '#fff';
+              ctx.fillText(sad ? '😭' : paper ? '🧑‍💼' : '👨‍💻', pX, pY - 10 - hop);
+            }
             if (paper) {
               /* Drawn after the worker: behind them the stack was invisible,
                  which is the bug the installed part used to have too. */
@@ -2499,6 +3048,15 @@
             }
           }
 
+          if (S.cast) {
+            if (S.cast.table && S.cast.table.x === x && S.cast.table.y === y) {
+              drawMeetingTable(x, y);
+            }
+            for (const a of S.cast.actors) {
+              if (Math.round(a.x) === x && Math.round(a.y) === y) drawActor(a);
+            }
+          }
+
           for (const r of S.rivals) {
             if (r.x !== x || r.y !== y) continue;
             groundShadow(pX, pY, 14);
@@ -2511,14 +3069,27 @@
           if (S.player.x === x && S.player.y === y) {
             ctx.save();
             ctx.globalAlpha = (S.player.invuln > 0 && Math.floor(S.globalTime / 4) % 2) ? 0.35 : 1;
+            const isCar = S.floor.avatar === '@car';
             // marker disc: the suit emoji is dark and gets lost among the desks
-            ctx.beginPath();
-            ctx.ellipse(pX, pY, 18, 9, 0, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(0,229,255,0.28)'; ctx.fill();
-            ctx.strokeStyle = 'rgba(0,229,255,0.95)'; ctx.lineWidth = 2; ctx.stroke();
+            if (!S.loopRun) {
+              ctx.beginPath();
+              ctx.ellipse(pX, pY, 18, 9, 0, 0, Math.PI * 2);
+              ctx.fillStyle = 'rgba(0,229,255,0.28)'; ctx.fill();
+              ctx.strokeStyle = 'rgba(0,229,255,0.95)'; ctx.lineWidth = 2; ctx.stroke();
+            }
             ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 14;
             ctx.font = '36px Arial'; ctx.fillStyle = '#fff';
-            ctx.fillText(S.floor.avatar, pX, pY - S.player.animY + 3);
+            if (S.loopRun) {
+              /* Round the inside of the ring: angle 0 is the bottom, where it
+                 drives on, and half way round it is over the top and inverted.
+                 Same circle drawLoop draws, so the wheels stay on the track. */
+              const a = smooth(clamp(S.loopRun.t, 0, 1)) * Math.PI * 2;
+              drawCar(pX + LOOP_R * Math.sin(a), pY - LOOP_R + LOOP_R * Math.cos(a), a, 1);
+            } else if (isCar) {
+              drawCar(pX, pY - S.player.animY - 4, 0, 1);
+            } else {
+              ctx.fillText(S.floor.avatar, pX, pY - S.player.animY + 3);
+            }
             ctx.restore();
           }
 
@@ -2562,6 +3133,8 @@
         if (--S.slapFx[i].timer <= 0) S.slapFx.splice(i, 1);
       }
     }
+
+    if (S.cast) drawProjector();
 
     if (S.buildingAlpha > 0.01) {
       ctx.globalAlpha = S.buildingAlpha;
@@ -2727,6 +3300,191 @@
     narration.textContent = options.narration ? '🗣️' : '🤐';
   }
 
+  /* ======================= breaking news =======================
+     One mission a week, built on something that actually happened. It is
+     picked from a panel on the menu rather than climbed to, introduced by a
+     bulletin, and then handed to the ordinary briefing: from there on it is
+     an ordinary mission and every bit of machinery below treats it as one. */
+
+  const hebDate = iso => {
+    const p = String(iso).split('-');
+    return p.length === 3 ? `${+p[2]}.${+p[1]}.${p[0]}` : String(iso);
+  };
+
+  function renderNewsPanel() {
+    const panel = $('newsPanel'), list = $('newsList');
+    panel.hidden = !NEWS.length;
+    if (!NEWS.length) return;
+    list.textContent = '';
+    // newest first: this week's is what anyone opening the panel came for
+    NEWS.map((n, i) => ({ n, i }))
+      .sort((a, b) => (a.n.date < b.n.date ? 1 : a.n.date > b.n.date ? -1 : 0))
+      .forEach(({ n, i }) => {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'news-item';
+        const date = document.createElement('span');
+        date.className = 'nd'; date.textContent = hebDate(n.date);
+        const head = document.createElement('span');
+        head.className = 'nh'; head.textContent = n.headline;
+        head.prepend(date);
+        const blurb = document.createElement('span');
+        blurb.className = 'nb'; blurb.textContent = n.blurb;
+        btn.append(head, blurb);
+        btn.addEventListener('click', () => openNews(i));
+        li.appendChild(btn);
+        list.appendChild(li);
+      });
+  }
+
+  /** Lays the bulletin out, one block per speaker, and returns the single
+      script the narrator reads across all of them. Word N on screen is word N
+      in the mouth, exactly as in a mission: the plain spelling is shown and
+      the pointed one is spoken. Only one block is visible at a time — these
+      are captions on a television, not a transcript — so each one also
+      records the slice of the script it covers. */
+  function buildBulletin(n) {
+    const feed = $('newsFeed');
+    feed.textContent = '';
+    const words = [], lines = [];
+    let say = '';
+    for (const b of n.bulletin) {
+      const line = document.createElement('div');
+      line.className = 'line';
+      const who = document.createElement('span');
+      who.className = 'who'; who.textContent = b.who;
+      const body = document.createElement('div');
+      body.className = 'said-text';
+      line.append(who, body);
+      feed.appendChild(line);
+      const base = say.length;
+      const spoken = b.say || b.text;
+      const starts = wordStarts(spoken);
+      splitWords(body, b.text).forEach((w, k) => {
+        words.push({ el: w.el, start: base + (starts[k] === undefined ? w.start : starts[k]) });
+      });
+      say += spoken + ' ';
+      lines.push({ el: line, who: b.who, shots: b.shots || [], to: say.length });
+    }
+    say = say.trim();
+    return { words, say, lines, spoken: { starts: words.map(w => w.start), length: say.length } };
+  }
+
+  /** Paint the screen over the presenter's shoulder. Each bulletin line
+      carries its own pictures and they change while it is read, so the thing
+      being talked about is the thing on the wall. */
+  function showShot(shot) {
+    const box = $('newsMonitor');
+    box.textContent = '';
+    if (!shot) return;
+    const icon = document.createElement('div');
+    icon.className = 'shot';
+    icon.textContent = shot[0];
+    box.appendChild(icon);
+    if (shot[1]) {
+      const label = document.createElement('div');
+      label.className = 'shot-label';
+      label.textContent = shot[1];
+      box.appendChild(label);
+    }
+  }
+
+  /** Cut to whichever speaker is talking: the caption, the name in the lower
+      third, and the figure in the studio. The emoji at the head of `who` is
+      the presenter, and a reporter stands in the field rather than at a desk. */
+  function cutTo(bull, i) {
+    if (!bull || i === bull.at) return;
+    bull.at = i;
+    bull.lines.forEach((l, k) => l.el.classList.toggle('on', k === i));
+    const who = (bull.lines[i] || {}).who || '';
+    const role = (who.match(/^\s*(\p{Extended_Pictographic}\uFE0F?)/u) || [])[1] || '📺';
+    const name = who.replace(/^\s*\p{Extended_Pictographic}\uFE0F?\s*/u, '');
+    /* Whoever is on camera is a person, not the glyph in front of their name:
+       using `who`'s own emoji literally put a small television set at the
+       anchor desk. The role glyph goes in the corner of the figure instead. */
+    const anchor = $('newsAnchor');
+    anchor.textContent = '🧑\u200d💼';
+    const badge = document.createElement('span');
+    badge.className = 'role';
+    badge.textContent = role;
+    anchor.appendChild(badge);
+    $('newsWho').textContent = name;
+
+    /* The pictures cycle for as long as this speaker is on, and stop when the
+       cut comes — an interval left running would keep flipping images behind
+       the next person. */
+    clearInterval(bull.shotTimer);
+    const shots = (bull.lines[i] || {}).shots || [];
+    let k = 0;
+    showShot(shots[0]);
+    if (shots.length > 1) {
+      bull.shotTimer = setInterval(() => showShot(shots[++k % shots.length]), 1900);
+    }
+  }
+
+  /** The crawl. Written twice so the animation can loop on the seam without a
+      gap, and it carries the other weeks as well — a real ticker is never
+      about only the story on screen. */
+  function buildTicker(n) {
+    const bits = [n.headline];
+    for (const o of NEWS) if (o.id !== n.id) bits.push(`${hebDate(o.date)} · ${o.headline}`);
+    bits.push('REL WORLD · 110 קומות', 'משימה חדשה בכל שבוע');
+    const run = bits.join('   ◆   ') + '   ◆   ';
+    $('newsTicker').textContent = run + run;
+  }
+
+  function readBulletin() {
+    const n = NEWS[S.newsAt];
+    if (!n) return;
+    const screen = $('newsScreen');
+    if (S.bull) clearInterval(S.bull.shotTimer);
+    const bull = buildBulletin(n);
+    S.bull = bull;
+    bull.at = -1;
+    cutTo(bull, 0);
+
+    /* The opener runs before a word is spoken, the way it does on television:
+       bars, the slam, and only then the studio. */
+    screen.classList.remove('live', 'signoff-on');
+    screen.classList.add('sting-on');
+    Audio.newsSting();
+    clearTimeout(S.newsTimer);
+    S.newsTimer = setTimeout(() => {
+      if (S.state !== 'news') return;
+      screen.classList.remove('sting-on');
+      screen.classList.add('live');
+      Narrator.speak(bull.say, p => {
+        highlightWords(bull.words, bull.spoken, p);
+        const at = clamp(p, 0, 1) * bull.spoken.length;
+        let i = bull.lines.findIndex(l => at < l.to);
+        if (i < 0) i = bull.lines.length - 1;
+        cutTo(bull, i);
+      }, () => {
+        if (S.state !== 'news') return;
+        screen.classList.remove('live');
+        screen.classList.add('signoff-on');
+      });
+    }, 1750);
+  }
+
+  function openNews(i) {
+    const n = NEWS[i];
+    if (!n) return;
+    Audio.init();
+    Narrator.stop();
+    S.newsAt = i;
+    $('newsDate').textContent = hebDate(n.date);
+    $('newsHeadline').textContent = n.headline;
+    // the one part of the screen that is not satire, and it says so
+    $('newsSource').textContent = `מה קרה באמת: ${n.source}`;
+    buildTicker(n);
+    S.state = 'news';
+    showScreen('news');
+    track('news-open', { news: n.id });
+    readBulletin();
+  }
+
   function renderMenu() {
     const frag = document.createDocumentFragment();
     for (let i = 0; i < FLOORS; i++) {
@@ -2763,6 +3521,7 @@
         list.appendChild(li);
       });
     }
+    renderNewsPanel();
     $('bestScore').textContent = bestScore;
     $('contLvl').textContent = unlockedLevel + 1;
     $('btnContinue').hidden = unlockedLevel === 0;
@@ -2782,9 +3541,21 @@
   $('btnEnterBuilding').addEventListener('click', () => { Narrator.stop(); openBriefing(0, true); });
   $('btnContinue').addEventListener('click', () => openBriefing(unlockedLevel, true));
   $('btnGo').addEventListener('click', startLevel);
+  $('btnNewsGo').addEventListener('click', () => {
+    Narrator.stop();
+    clearTimeout(S.newsTimer);
+    if (S.bull) clearInterval(S.bull.shotTimer);
+    $('newsScreen').classList.remove('sting-on', 'live', 'signoff-on');
+    openBriefing(newsIndex(S.newsAt), true);
+  });
+  $('btnNewsReplay').addEventListener('click', () => { Narrator.stop(); readBulletin(); });
+  $('btnNewsMenu').addEventListener('click', toMenu);
   $('btnBriefMenu').addEventListener('click', toMenu);
   $('btnNext').addEventListener('click', () => {
-    if (S.level >= FLOORS - 1) {
+    // a news mission is not a rung: there is no floor above it to go to
+    if (isNews(S.level)) {
+      toMenu();
+    } else if (S.level >= FLOORS - 1) {
       gameOver('סיימת 100 קומות. הדירקטוריון מינה אותך למנכ"ל, והמשקיעים כבר מתחרטים.', true);
     } else {
       openBriefing(S.level + 1, false);
@@ -2912,10 +3683,11 @@
   window.RelWorld = { buildFloor, distanceField, reachableFrom, TILE, isDesk, FLOORS,
                       state: S, options, BRIEF_OPEN_MS, missionScript, QUOTES, reachableWithKeys, openBriefing, levelCleared, EPIGRAPH,
                       narrationProgress,
-                      startCareer, shareGame, BRAND, track, BUILD, checkForUpdate,
+                      startCareer, startLevel, shareGame, BRAND, track, BUILD, checkForUpdate,
                       stopNarration: Narrator.stop,
                       view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,
-                      SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel };
+                      SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel,
+                      NEWS, openNews, newsIndex, isNews, renderNewsPanel, tryMove };
 
   $('btnShareClear').addEventListener('click', e => shareGame(e.currentTarget));
   $('btnShareOver').addEventListener('click', e => shareGame(e.currentTarget));

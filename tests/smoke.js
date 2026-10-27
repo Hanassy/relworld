@@ -289,7 +289,10 @@ function serve() {
 
   const quote = await page.evaluate(() => {
     const Q = window.RelWorld.QUOTES;
-    const bad = Q.filter(q => !q.t || !q.who || !(q.year >= 1900 && q.year <= 2025));
+    // the upper bound is "not the future": a breaking-news mission quotes
+    // something said this week, so a fixed year would expire every January
+    const thisYear = new Date().getFullYear();
+    const bad = Q.filter(q => !q.t || !q.who || !(q.year >= 1900 && q.year <= thisYear));
     const el = document.getElementById('clearQuote');
     return {
       count: Q.length, bad: bad.length,
@@ -313,14 +316,20 @@ function serve() {
     const shown = (el.querySelector('.q-text') || {}).textContent || '';
     return {
       levels: L.length, floors: window.RelWorld.FLOORS,
+      news: window.RelWorld.NEWS.length,
       missions: missions.size, quotes: quotes.size,
       matchesFloor1: shown.includes(L[0].q.t.slice(0, 20))
     };
   });
-  // the tower is as tall as the data: adding a floor must not need a code edit
-  check('the tower is exactly as tall as the level data, and every mission is its own',
-    content.levels >= 100 && content.floors === content.levels && content.missions === content.levels,
-    `${content.levels} levels, ${content.floors} floors, ${content.missions} distinct missions`);
+  /* The tower is as tall as the career data — adding a floor must not need a
+     code edit — and the weekly news missions sit alongside it rather than on
+     top of it. If a news mission ever counted as a floor it would renumber
+     the whole tower and invalidate every save. */
+  check('the tower is exactly as tall as the career data, with the news beside it',
+    content.levels >= 100 && content.floors + content.news === content.levels &&
+    content.missions === content.levels && content.news >= 1,
+    `${content.levels} levels = ${content.floors} floors + ${content.news} news, ` +
+    `${content.missions} distinct missions`);
   check('each level has its own distinct quote', content.quotes === content.levels,
     `${content.quotes} distinct quotes`);
   check('the quote shown matches the floor just cleared', content.matchesFloor1);
@@ -1118,12 +1127,15 @@ function serve() {
       [/(^|\s)[ולבהש]?כול(\s|[,.:;!?]|$)/, 'כול with the plene vav'],
       [/(^|\s)ה?זות(\s|[,.:;!?]|$)/, 'זות for זאת'],
       [/עסר/, 'עסרים for עשרים'],
-      [/(^|\s)צ'ד(\s|[,.:;!?]|$)/, "צ'ד for צ'אד"]
+      [/(^|\s)צ'ד(\s|[,.:;!?]|$)/, "צ'ד for צ'אד"],
+      [/(^|\s)מסק(\s|[,.:;!?]|$)/, 'מסק without the alef']
     ];
     const hits = [];
     L.forEach((l, i) => {
-      for (const f of ['text', 'sub']) {
-        for (const [re, why] of wrong) if (re.test(l[f])) hits.push(`L${i + 1}.${f}: ${why}`);
+      // the quote now carries sayT/sayWho, so its shown half is scanned too
+      const shown = { text: l.text, sub: l.sub, 'q.t': l.q.t, 'q.who': l.q.who };
+      for (const f of Object.keys(shown)) {
+        for (const [re, why] of wrong) if (re.test(shown[f])) hits.push(`L${i + 1}.${f}: ${why}`);
       }
     });
     return hits;
@@ -1175,6 +1187,446 @@ function serve() {
   const onFloppy = await paperPixels(4);         // floor 5: paper AND a ✓ plate per desk
   check('and still does on a floor where the desk also carries a ✓ plate',
     onFloppy.age === 'paper' && onFloppy.top > 300, JSON.stringify(onFloppy));
+
+  /* ---- the briefing stages a room, and the room empties into the desks ---- */
+  const cast = await page.evaluate(() => {
+    const R = window.RelWorld, TILE = R.TILE;
+    const bad = [], styles = {};
+    let minCrowd = 99;
+    for (let i = 0; i < R.FLOORS; i++) {
+      R.openBriefing(i, true); R.stopNarration();
+      const c = R.state.cast, map = R.state.floor.map;
+      if (!c) { bad.push(`L${i + 1}: no scene staged`); continue; }
+      styles[c.style] = (styles[c.style] || 0) + 1;
+      const crowd = c.actors.filter(a => a.seat);
+      minCrowd = Math.min(minCrowd, crowd.length);
+      const seen = new Set();
+      for (const a of c.actors) {
+        const t = map[a.sy][a.sx];
+        // nobody may be staged inside a wall, a desk or a doorway
+        if (t !== TILE.FLOOR && t !== TILE.ROOM) bad.push(`L${i + 1}: actor on tile ${t}`);
+        const k = a.sy * 20 + a.sx;
+        if (seen.has(k)) bad.push(`L${i + 1}: two actors on one tile`);
+        seen.add(k);
+        if (a.seat && !R.isDesk(map[a.seat.y][a.seat.x])) bad.push(`L${i + 1}: seat is not a desk`);
+      }
+      // ...and every desk they vacated has to be given back
+      R.startLevel();
+      R.state.introT = 1e6;
+      if (c.empty.size === 0) continue;
+    }
+    return { bad, styles, minCrowd };
+  });
+  check('every floor stages a scene, and nobody is staged inside the furniture',
+    cast.bad.length === 0 && cast.minCrowd >= 4 &&
+    Object.keys(cast.styles).length === 3,
+    `${JSON.stringify(cast.styles)} minCrowd=${cast.minCrowd} ${cast.bad.slice(0, 3).join(' | ')}`);
+
+  /* The desks they left stand empty while they are at the stand-up. If the walk
+     ever failed to finish, those desks would stay empty for the whole floor —
+     so drive a real dive-in and check every seat is handed back. */
+  const seated = await page.evaluate(() => {
+    const R = window.RelWorld;
+    R.openBriefing(0, true); R.stopNarration();
+    const before = R.state.cast.empty.size;
+    R.startLevel();
+    return new Promise(resolve => {
+      const t0 = Date.now();
+      const tick = () => {
+        if (R.state.state === 'playing' || Date.now() - t0 > 8000) {
+          resolve({ before, left: R.state.cast ? R.state.cast.empty.size : 0,
+                    cleared: R.state.cast === null, state: R.state.state });
+        } else setTimeout(tick, 100);
+      };
+      tick();
+    });
+  });
+  check('and every desk they left is filled again by the time you take control',
+    seated.before >= 4 && seated.left === 0 && seated.cleared && seated.state === 'playing',
+    JSON.stringify(seated));
+
+  /* ---- breaking news: the panel, the broadcast, and the mission ---- */
+  const news = await page.evaluate(async () => {
+    const R = window.RelWorld;
+    R.renderNewsPanel();
+    const items = [...document.querySelectorAll('#newsList .news-item')];
+    const panelHidden = document.getElementById('newsPanel').hidden;
+    // the panel has to say what each mission is, or it cannot be chosen from
+    const listed = items.map(b => ({
+      head: (b.querySelector('.nh') || {}).textContent || '',
+      blurb: (b.querySelector('.nb') || {}).textContent || '',
+      date: (b.querySelector('.nd') || {}).textContent || ''
+    }));
+    items[0].click();
+    await new Promise(r => setTimeout(r, 120));
+    const feedWords = document.querySelectorAll('#newsFeed .w').length;
+    const speakers = document.querySelectorAll('#newsFeed .who').length;
+    const shown = document.getElementById('newsScreen').hidden === false;
+    const source = document.getElementById('newsSource').textContent;
+    document.getElementById('btnNewsGo').click();
+    await new Promise(r => setTimeout(r, 120));
+    return {
+      panelHidden, listed, feedWords, speakers, shown, source,
+      level: R.state.level, floors: R.FLOORS,
+      title: document.getElementById('bTitle').textContent,
+      briefing: document.getElementById('briefingScreen').hidden === false
+    };
+  });
+  check('the news panel lists each mission by headline, date and blurb',
+    !news.panelHidden && news.listed.length >= 1 &&
+    news.listed.every(l => l.head.length > 5 && l.blurb.length > 5 && /\d{4}/.test(l.date)),
+    JSON.stringify(news.listed[0]));
+  check('choosing one plays a bulletin with more than one speaker',
+    news.shown && news.speakers >= 2 && news.feedWords > 20 && /^מה קרה באמת/.test(news.source),
+    `${news.speakers} speakers, ${news.feedWords} words`);
+  /* A news mission must never be announced as a floor. The tower is 110 floors
+     and the save file counts them, so "קומה 111" would be a lie on screen and
+     a renumbering waiting to happen. */
+  check('and hands over to a briefing that does not call it a floor',
+    news.briefing && news.level >= news.floors && !/קומה/.test(news.title) &&
+    news.title.includes('חדשות'),
+    `${news.title} @ level ${news.level}`);
+
+  const newsProgress = await page.evaluate(() => {
+    const R = window.RelWorld;
+    const before = localStorage.getItem('rel_unlocked');
+    R.openBriefing(R.newsIndex(0), true);
+    R.levelCleared();
+    return { before, after: localStorage.getItem('rel_unlocked'),
+             next: document.getElementById('btnNext').textContent };
+  });
+  // clearing this week's mission must not unlock a floor you have not climbed
+  check('clearing a news mission moves the career not one floor',
+    newsProgress.before === newsProgress.after && /חדשות/.test(newsProgress.next),
+    JSON.stringify(newsProgress));
+
+  /* ---- the twist: take the thing, become it, drive to the far side ---- */
+  const twist = await page.evaluate(async () => {
+    const R = window.RelWorld, S = R.state;
+    R.openBriefing(R.newsIndex(0), true);
+    R.startLevel();
+    // tryMove does nothing until the dive-in hands over control
+    for (let i = 0; i < 80 && S.state !== 'playing'; i++) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    const f = S.floor;
+    const before = {
+      avatar: f.avatar, tag: f.tag, goal: { ...f.goal },
+      time: S.timeLeft, twisted: S.twisted, state: S.state
+    };
+    // satisfy the floor, then walk onto the goal the way a player would
+    S.slaps = f.desks; S.partsGiven = f.desks; S.coinsGot = f.coinQuota;
+    S.chadSlapped = true;
+    const dist = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    // step onto the goal the way a player does, through tryMove itself
+    const stepOnto = () => {
+      S.player.x = f.goal.x - 1; S.player.y = f.goal.y;
+      R.tryMove(1, 0);
+    };
+    stepOnto();
+    const mid = {
+      avatar: f.avatar, tag: f.tag, goal: { ...f.goal },
+      time: S.timeLeft, twisted: S.twisted, state: S.state,
+      moved: dist(before.goal, f.goal),
+      // the new goal has to be somewhere you can actually drive to
+      reachable: R.distanceField(S.map, before.goal.x, before.goal.y, true)[f.goal.y][f.goal.x]
+    };
+    /* The exit is a stunt loop, so the last arrival starts a ride rather than
+       clearing on the spot. Wait it out the way a player does. */
+    stepOnto();
+    const rode = !!S.loopRun;
+    for (let i = 0; i < 60 && S.state !== 'clear'; i++) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return { before, mid, rode, cleared: S.state === 'clear',
+             outro: (document.getElementById('clearOutro').textContent || '').trim(),
+             outroShown: document.getElementById('clearOutro').hidden === false };
+  });
+  check('reaching the first goal hands you the thing and turns you into it',
+    twist.before.avatar !== twist.mid.avatar && twist.mid.avatar === '@car' &&
+    twist.mid.twisted && twist.mid.state !== 'clear',
+    `${twist.before.avatar} -> ${twist.mid.avatar}`);
+  /* "180 degrees": the point of the second half is that it is a drive. A new
+     goal two tiles away would make the twist a formality, and one you cannot
+     reach would make the mission impossible. */
+  check('and the goal moves to the far side of the floor, still reachable',
+    twist.mid.moved >= 8 && Number.isFinite(twist.mid.reachable) &&
+    twist.mid.tag !== twist.before.tag && twist.mid.time > twist.before.time,
+    `moved ${twist.mid.moved} tiles, ${twist.mid.reachable} steps away, ` +
+    `+${twist.mid.time - twist.before.time}s`);
+  check('the second arrival rides the loop, then clears with the punchline',
+    twist.rode && twist.cleared && twist.outroShown && twist.outro.length > 8,
+    `rode=${twist.rode} cleared=${twist.cleared} | ${twist.outro}`);
+
+  /* The twist is what makes a news mission worth a week rather than floor 111
+     with a red border, so the tool that adds one refuses a draft without it. */
+  const required = await page.evaluate(() => {
+    const R = window.RelWorld;
+    return R.NEWS.map((n, i) => {
+      R.openBriefing(R.newsIndex(i), true);
+      const f = R.state.floor, l = n.level;
+      /* The marker on the floor, not just the field in the file. A whitelist in
+         the vocaliser once ate `goalIcon` on its next run and the car mission
+         shipped with the HR lawyer standing where the car should be — nothing
+         read the field, so nothing noticed. This reads it off the built floor. */
+      return !!(l.twist && l.outro && l.twist.avatar && l.twist.goal !== l.goal &&
+                l.goalIcon && f.goalIcon === l.goalIcon && f.twist);
+    });
+  });
+  check('every news mission declares a twist, a closing line and its own goal marker',
+    required.length >= 1 && required.every(Boolean), JSON.stringify(required));
+
+  /* ---- the bulletin is a broadcast: opener, presenter, cuts, sign-off ---- */
+  const tv = await page.evaluate(async () => {
+    const R = window.RelWorld;
+    const screen = document.getElementById('newsScreen');
+    const cls = () => [...screen.classList].filter(c => /sting-on|live|signoff-on/.test(c)).join(',');
+    const seen = [];
+    const note = () => { const c = cls(); if (c !== seen[seen.length - 1]) seen.push(c); };
+
+    /* A narrator that reports progress, so the cuts and the sign-off run. The
+       voice path has to be the one under test: with narration off the engine
+       falls back to a timer sized by text length, which is ~14s for a
+       bulletin and would just time the test out. */
+    R.options.narration = true;
+    let timer = null;
+    window.speechSynthesis.speak = (u) => {
+      let p = 0;
+      timer = setInterval(() => {
+        p += 0.06;
+        if (u.onboundary) u.onboundary({ charIndex: Math.floor(p * (u.text || '').length) });
+        if (p >= 1) { clearInterval(timer); if (u.onend) u.onend(); }
+      }, 20);
+    };
+
+    R.openNews(0);
+    note();
+    const opener = cls();
+    const ticker = document.getElementById('newsTicker').textContent;
+    const whos = new Set(), visible = [];
+    for (let i = 0; i < 400; i++) {
+      await new Promise(r => setTimeout(r, 50));
+      note();
+      const on = [...document.querySelectorAll('#newsFeed .line.on')];
+      visible.push(on.length);
+      const w = document.getElementById('newsWho').textContent.trim();
+      if (w) whos.add(w);
+      if (cls() === 'signoff-on') break;
+    }
+    return {
+      opener, seen, ticker: ticker.length, whos: [...whos],
+      lines: document.querySelectorAll('#newsFeed .line').length,
+      // exactly one caption at a time, the whole way through
+      onlyOne: visible.every(v => v === 1),
+      // the crawl is written twice so -50% lands on the seam with no gap
+      doubled: ticker.length > 40 && ticker.slice(0, ticker.length / 2) === ticker.slice(ticker.length / 2),
+      anchorIsPerson: /\u{1F9D1}/u.test(document.getElementById('newsAnchor').textContent)
+    };
+  });
+  check('the broadcast opens on a sting before a word is spoken',
+    tv.opener === 'sting-on' && tv.seen[0] === 'sting-on', tv.seen.join(' -> '));
+  check('then goes live, cuts between the presenters, and signs off',
+    tv.seen.includes('live') && tv.seen[tv.seen.length - 1] === 'signoff-on' &&
+    tv.whos.length >= 2 && tv.anchorIsPerson,
+    `${tv.seen.join(' -> ')} | ${tv.whos.join(' / ')}`);
+  check('one caption on screen at a time, over a crawl that loops seamlessly',
+    tv.onlyOne && tv.lines >= 2 && tv.doubled,
+    `${tv.lines} lines, ticker ${tv.ticker} chars, doubled=${tv.doubled}`);
+
+  /* ---- a drawn marker must never be read out as its token ---- */
+  const tokens = await page.evaluate(async () => {
+    const R = window.RelWorld, S = R.state;
+    R.openBriefing(R.newsIndex(0), true);
+    const brief = document.getElementById('bObjectives').textContent;
+    R.startLevel();
+    for (let i = 0; i < 80 && S.state !== 'playing'; i++) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    const panel = document.getElementById('taskList').textContent +
+                  document.getElementById('taskListBottom').textContent;
+    return { brief, panel, both: brief + panel };
+  });
+  check('the drawn goal marker never leaks its token into anything readable',
+    !/@car|@[a-z]+/.test(tokens.both) && tokens.panel.includes('🚗'),
+    tokens.panel.replace(/\s+/g, ' ').trim().slice(0, 90));
+
+  /* ---- the screen behind the presenter changes with what is being said ---- */
+  const shots = await page.evaluate(async () => {
+    const R = window.RelWorld;
+    R.options.narration = true;
+    window.speechSynthesis.speak = (u) => {
+      let p = 0;
+      const t = setInterval(() => {
+        p += 0.07;
+        if (u.onboundary) u.onboundary({ charIndex: Math.floor(p * (u.text || '').length) });
+        if (p >= 1) { clearInterval(t); if (u.onend) u.onend(); }
+      }, 20);
+    };
+    R.openNews(0);
+    const seen = new Set();
+    const labels = new Set();
+    for (let i = 0; i < 300; i++) {
+      await new Promise(r => setTimeout(r, 50));
+      const box = document.getElementById('newsMonitor');
+      const icon = (box.querySelector('.shot') || {}).textContent;
+      const label = (box.querySelector('.shot-label') || {}).textContent;
+      if (icon) seen.add(icon);
+      if (label) labels.add(label);
+      if (document.getElementById('newsScreen').classList.contains('signoff-on')) break;
+    }
+    return {
+      icons: [...seen], labels: [...labels],
+      declared: R.NEWS.every(n => (n.bulletin || []).every(b => (b.shots || []).length >= 1)),
+      namesMusk: R.NEWS[0].bulletin.some(b => /מאסק/.test(b.text))
+    };
+  });
+  check('the screen over the presenter cycles pictures of what is being said',
+    shots.icons.length >= 3 && shots.labels.length >= 3 && shots.declared,
+    `${shots.icons.join(' ')} | ${shots.labels.join(' / ')}`);
+  check('and the bulletin names who the story is about', shots.namesMusk);
+
+  /* ---- the two halves are gated the right way round ---- */
+  const gating = await page.evaluate(async () => {
+    const R = window.RelWorld, S = R.state;
+    R.openBriefing(R.newsIndex(0), true);
+    const chips = document.getElementById('bObjectives').textContent;
+    R.startLevel();
+    for (let i = 0; i < 80 && S.state !== 'playing'; i++) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    const f = S.floor;
+    const panel = document.getElementById('taskList').textContent;
+    const stepOnto = () => {
+      S.player.x = f.goal.x - 1; S.player.y = f.goal.y;
+      R.tryMove(1, 0);
+    };
+    // nothing done at all: taking the thing must still work
+    stepOnto();
+    const took = S.twisted;
+    // ...and the finish must NOT, until the floor's own work is done
+    stepOnto();
+    const earlyFinish = S.state === 'clear' || !!S.loopRun;
+    S.slaps = f.desks; S.partsGiven = f.desks; S.coinsGot = f.coinQuota;
+    S.chadSlapped = true;
+    stepOnto();
+    return { chips, panel, took, earlyFinish, lateFinish: !!S.loopRun };
+  });
+  check('the car can be taken with none of the floor done — that is the mission',
+    gating.took && !gating.earlyFinish && gating.lateFinish,
+    `took=${gating.took} earlyFinish=${gating.earlyFinish} lateFinish=${gating.lateFinish}`);
+  /* A player who only ever reads "reach the car" never learns there is a second
+     half, which is exactly the report that prompted this. */
+  check('and both halves are named before you start, and while you play',
+    /קח את/.test(gating.chips) && /מסלול/.test(gating.chips) &&
+    /קח את/.test(gating.panel) && /מסלול/.test(gating.panel),
+    gating.panel.replace(/\s+/g, ' ').trim().slice(0, 100));
+
+  /* ---- the managers have to be beatable on foot ---- */
+  const chase = await page.evaluate(() => {
+    const R = window.RelWorld;
+    const out = [];
+    for (const lvl of [0, 50, 109]) {
+      R.openBriefing(lvl, true);
+      // the first floors send nobody after you at all, so skip the empties
+      for (const r of R.state.rivals) out.push({ lvl: lvl + 1, ms: r.speed });
+    }
+    return { fastest: Math.min(...out.map(o => o.ms)),
+             perFloor: out.map(o => `L${o.lvl}:${o.ms}`) };
+  });
+  // the player steps every MOVE_MS = 115ms and paths badly; these path perfectly
+  check('the fastest manager is still meaningfully slower than the player',
+    chase.fastest >= 195, `${chase.perFloor.join(' / ')} ms per step vs the player's 115`);
+
+  /* ---- the closing quote gets the same two-version treatment ---- */
+  const quoted = await page.evaluate(() => {
+    const R = window.RelWorld;
+    const NIQQUD = /[\u0591-\u05C7]/;
+    const words = t => (String(t || '').match(/\S+/g) || []).length;
+    const bad = [], pointed = [];
+    R.LEVELS.forEach((l, i) => {
+      const q = l.q;
+      if (!q.sayT || !q.sayWho) { bad.push(`L${i + 1}: no spoken half`); return; }
+      // word N on screen has to be word N in the mouth, same contract as a mission
+      if (words(q.t) !== words(q.sayT)) bad.push(`L${i + 1}.t: ${words(q.t)} vs ${words(q.sayT)}`);
+      if (words(q.who) !== words(q.sayWho)) bad.push(`L${i + 1}.who misaligned`);
+      // and the plain half must stay plain: points on screen were the whole problem
+      if (NIQQUD.test(q.t) || NIQQUD.test(q.who)) bad.push(`L${i + 1}: points leaked on screen`);
+      if (NIQQUD.test(q.sayT)) pointed.push(i);
+    });
+    return { bad, pointed: pointed.length, total: R.LEVELS.length };
+  });
+  check('every closing quote has a pointed spoken half, aligned word for word',
+    quoted.bad.length === 0 && quoted.pointed === quoted.total,
+    `${quoted.pointed}/${quoted.total} pointed  ${quoted.bad.slice(0, 3).join(' | ')}`);
+
+  /* And the clear screen must actually speak the pointed one while lighting the
+     plain one — the whole point of keeping two versions. */
+  const spokenQuote = await page.evaluate(() => {
+    const R = window.RelWorld;
+    let said = '';
+    R.options.narration = true;
+    window.speechSynthesis.speak = (u) => { said += u.text + ' '; if (u.onend) u.onend(); };
+    R.openBriefing(R.newsIndex(0), true);
+    R.stopNarration();
+    said = '';                      // the briefing speaks too; only the quote counts
+    R.levelCleared();
+    return new Promise(resolve => setTimeout(() => {
+      const shown = document.querySelector('#clearQuote .q-text').textContent;
+      resolve({ shown, said: said.trim() });
+    }, 1400));
+  });
+  const NQ = /[֑-ׇ]/;
+  check('the clear screen shows the plain quote and speaks the pointed one',
+    !NQ.test(spokenQuote.shown) && NQ.test(spokenQuote.said) &&
+    spokenQuote.shown.length > 10,
+    `shown: ${spokenQuote.shown.slice(0, 40)} | said: ${spokenQuote.said.slice(0, 40)}`);
+
+  /* ---- pronunciations that came back wrong, and must stay fixed ----
+     Both of these were reported from actually listening to the game, which is
+     the only way to catch them: the text looked right on every screen. */
+  const heard = await page.evaluate(() => {
+    const R = window.RelWorld;
+    const all = [];
+    R.LEVELS.forEach(l => {
+      all.push(l.say, l.saySub, l.q.sayT, l.q.sayWho);
+      if (l.twist) all.push(l.twist.sayAnnounce);
+      if (l.outro) all.push(l.outro.say);
+    });
+    R.NEWS.forEach(n => n.bulletin.forEach(b => all.push(b.say)));
+    const text = all.filter(Boolean).join(' ');
+    const bare = text.replace(/[\u0591-\u05C7]/g, '');
+    return {
+      // "אוויר" read as av-VIR: the doubled vav of plene spelling is one /v/
+      air: /אויר/.test(bare) && !/אוויר/.test(bare),
+      // "מאסק" read as ma-SAK: the alef is not heard, so it is not written
+      musk: /מסק/.test(bare) && !/מאסק/.test(bare),
+      samples: (text.match(/\S*אויר\S*|\S*מסק\S*/g) || []).slice(0, 3)
+    };
+  });
+  check('אוויר is spoken with one vav, and מאסק without the alef',
+    heard.air && heard.musk, heard.samples.join(' '));
+
+  /* The news mission is text we write ourselves, unlike a quote, so there is no
+     excuse for a word in it the dictionary has never seen. */
+  const newsCover = await page.evaluate(() => {
+    const R = window.RelWorld;
+    const POINT = /[\u0591-\u05C7]/;
+    const bad = [];
+    for (const n of R.NEWS) {
+      const l = n.level;
+      const fields = { say: l.say, saySub: l.saySub, twist: l.twist.sayAnnounce,
+                       outro: l.outro.say, quote: l.q.sayT, who: l.q.sayWho };
+      n.bulletin.forEach((b, i) => { fields['bulletin' + i] = b.say; });
+      for (const k of Object.keys(fields)) {
+        for (const w of String(fields[k] || '').match(/\S+/g) || []) {
+          if (/[\u0590-\u05FF]/.test(w) && !POINT.test(w)) bad.push(`${n.id}.${k}: ${w}`);
+        }
+      }
+    }
+    return bad;
+  });
+  check('every Hebrew word the news reads out loud is pointed',
+    newsCover.length === 0, newsCover.slice(0, 4).join(' | '));
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

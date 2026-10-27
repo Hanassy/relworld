@@ -168,7 +168,7 @@ node tools/vocalize.js --check  # נכשל אם הם לא מעודכנים או 
 ```
 index.html        שלד הדף והמסכים
 src/styles.css    עיצוב, RTL ופריסה לנייד
-tools/vocalize.js מנקד משימות, מהדורות וציטוטים מתוך tools/niqqud.json (1355 מילים)
+tools/vocalize.js מנקד משימות, מהדורות וציטוטים מתוך tools/niqqud.json (1405 מילים)
 tools/news-add.js מוסיף את משימת השבוע ל-src/news.js, מאמת ומנקד אותה
 .github/WEEKLY-NEWS.md  הבריף השבועי: הטון, ה-twist, ומה שלא נכנס
 src/brand.js      המקום היחיד שיודע על החברה: קרדיט, קישור, הבהרה, אנליטיקס

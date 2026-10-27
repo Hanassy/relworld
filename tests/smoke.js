@@ -1127,7 +1127,8 @@ function serve() {
       [/(^|\s)[ולבהש]?כול(\s|[,.:;!?]|$)/, 'כול with the plene vav'],
       [/(^|\s)ה?זות(\s|[,.:;!?]|$)/, 'זות for זאת'],
       [/עסר/, 'עסרים for עשרים'],
-      [/(^|\s)צ'ד(\s|[,.:;!?]|$)/, "צ'ד for צ'אד"]
+      [/(^|\s)צ'ד(\s|[,.:;!?]|$)/, "צ'ד for צ'אד"],
+      [/(^|\s)מסק(\s|[,.:;!?]|$)/, 'מסק without the alef']
     ];
     const hits = [];
     L.forEach((l, i) => {
@@ -1579,6 +1580,53 @@ function serve() {
     !NQ.test(spokenQuote.shown) && NQ.test(spokenQuote.said) &&
     spokenQuote.shown.length > 10,
     `shown: ${spokenQuote.shown.slice(0, 40)} | said: ${spokenQuote.said.slice(0, 40)}`);
+
+  /* ---- pronunciations that came back wrong, and must stay fixed ----
+     Both of these were reported from actually listening to the game, which is
+     the only way to catch them: the text looked right on every screen. */
+  const heard = await page.evaluate(() => {
+    const R = window.RelWorld;
+    const all = [];
+    R.LEVELS.forEach(l => {
+      all.push(l.say, l.saySub, l.q.sayT, l.q.sayWho);
+      if (l.twist) all.push(l.twist.sayAnnounce);
+      if (l.outro) all.push(l.outro.say);
+    });
+    R.NEWS.forEach(n => n.bulletin.forEach(b => all.push(b.say)));
+    const text = all.filter(Boolean).join(' ');
+    const bare = text.replace(/[\u0591-\u05C7]/g, '');
+    return {
+      // "אוויר" read as av-VIR: the doubled vav of plene spelling is one /v/
+      air: /אויר/.test(bare) && !/אוויר/.test(bare),
+      // "מאסק" read as ma-SAK: the alef is not heard, so it is not written
+      musk: /מסק/.test(bare) && !/מאסק/.test(bare),
+      samples: (text.match(/\S*אויר\S*|\S*מסק\S*/g) || []).slice(0, 3)
+    };
+  });
+  check('אוויר is spoken with one vav, and מאסק without the alef',
+    heard.air && heard.musk, heard.samples.join(' '));
+
+  /* The news mission is text we write ourselves, unlike a quote, so there is no
+     excuse for a word in it the dictionary has never seen. */
+  const newsCover = await page.evaluate(() => {
+    const R = window.RelWorld;
+    const POINT = /[\u0591-\u05C7]/;
+    const bad = [];
+    for (const n of R.NEWS) {
+      const l = n.level;
+      const fields = { say: l.say, saySub: l.saySub, twist: l.twist.sayAnnounce,
+                       outro: l.outro.say, quote: l.q.sayT, who: l.q.sayWho };
+      n.bulletin.forEach((b, i) => { fields['bulletin' + i] = b.say; });
+      for (const k of Object.keys(fields)) {
+        for (const w of String(fields[k] || '').match(/\S+/g) || []) {
+          if (/[\u0590-\u05FF]/.test(w) && !POINT.test(w)) bad.push(`${n.id}.${k}: ${w}`);
+        }
+      }
+    }
+    return bad;
+  });
+  check('every Hebrew word the news reads out loud is pointed',
+    newsCover.length === 0, newsCover.slice(0, 4).join(' | '));
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

@@ -1131,8 +1131,10 @@ function serve() {
     ];
     const hits = [];
     L.forEach((l, i) => {
-      for (const f of ['text', 'sub']) {
-        for (const [re, why] of wrong) if (re.test(l[f])) hits.push(`L${i + 1}.${f}: ${why}`);
+      // the quote now carries sayT/sayWho, so its shown half is scanned too
+      const shown = { text: l.text, sub: l.sub, 'q.t': l.q.t, 'q.who': l.q.who };
+      for (const f of Object.keys(shown)) {
+        for (const [re, why] of wrong) if (re.test(shown[f])) hits.push(`L${i + 1}.${f}: ${why}`);
       }
     });
     return hits;
@@ -1533,6 +1535,50 @@ function serve() {
   // the player steps every MOVE_MS = 115ms and paths badly; these path perfectly
   check('the fastest manager is still meaningfully slower than the player',
     chase.fastest >= 195, `${chase.perFloor.join(' / ')} ms per step vs the player's 115`);
+
+  /* ---- the closing quote gets the same two-version treatment ---- */
+  const quoted = await page.evaluate(() => {
+    const R = window.RelWorld;
+    const NIQQUD = /[\u0591-\u05C7]/;
+    const words = t => (String(t || '').match(/\S+/g) || []).length;
+    const bad = [], pointed = [];
+    R.LEVELS.forEach((l, i) => {
+      const q = l.q;
+      if (!q.sayT || !q.sayWho) { bad.push(`L${i + 1}: no spoken half`); return; }
+      // word N on screen has to be word N in the mouth, same contract as a mission
+      if (words(q.t) !== words(q.sayT)) bad.push(`L${i + 1}.t: ${words(q.t)} vs ${words(q.sayT)}`);
+      if (words(q.who) !== words(q.sayWho)) bad.push(`L${i + 1}.who misaligned`);
+      // and the plain half must stay plain: points on screen were the whole problem
+      if (NIQQUD.test(q.t) || NIQQUD.test(q.who)) bad.push(`L${i + 1}: points leaked on screen`);
+      if (NIQQUD.test(q.sayT)) pointed.push(i);
+    });
+    return { bad, pointed: pointed.length, total: R.LEVELS.length };
+  });
+  check('every closing quote has a pointed spoken half, aligned word for word',
+    quoted.bad.length === 0 && quoted.pointed === quoted.total,
+    `${quoted.pointed}/${quoted.total} pointed  ${quoted.bad.slice(0, 3).join(' | ')}`);
+
+  /* And the clear screen must actually speak the pointed one while lighting the
+     plain one — the whole point of keeping two versions. */
+  const spokenQuote = await page.evaluate(() => {
+    const R = window.RelWorld;
+    let said = '';
+    R.options.narration = true;
+    window.speechSynthesis.speak = (u) => { said += u.text + ' '; if (u.onend) u.onend(); };
+    R.openBriefing(R.newsIndex(0), true);
+    R.stopNarration();
+    said = '';                      // the briefing speaks too; only the quote counts
+    R.levelCleared();
+    return new Promise(resolve => setTimeout(() => {
+      const shown = document.querySelector('#clearQuote .q-text').textContent;
+      resolve({ shown, said: said.trim() });
+    }, 1400));
+  });
+  const NQ = /[֑-ׇ]/;
+  check('the clear screen shows the plain quote and speaks the pointed one',
+    !NQ.test(spokenQuote.shown) && NQ.test(spokenQuote.said) &&
+    spokenQuote.shown.length > 10,
+    `shown: ${spokenQuote.shown.slice(0, 40)} | said: ${spokenQuote.said.slice(0, 40)}`);
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

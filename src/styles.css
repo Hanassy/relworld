@@ -632,10 +632,15 @@ img.brand-logo { height: 14px; width: auto; vertical-align: -2px; }
   border-top: 2px solid rgba(120, 180, 255, 0.45);
   box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.5);
 }
-.desk-logo {
-  position: absolute; left: 7%; top: 12%;
-  font: bold 15px/1 Arial, sans-serif; letter-spacing: 3px;
-  color: rgba(140, 200, 255, 0.45);
+/* The station ident. It used to sit on the desk, where the presenter stood in
+   front of it; a channel bug belongs in a corner of the picture anyway. Left
+   is physical on purpose — the page is dir="rtl", and the logical start edge
+   would put it on the right, under the wall screen. */
+.channel-bug {
+  position: absolute; left: 3.5%; top: 5%; z-index: 2;
+  font: bold 17px/1 Arial, sans-serif; letter-spacing: 3px;
+  color: rgba(190, 225, 255, 0.72);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
 }
 
 /* ===== the opener ===== */

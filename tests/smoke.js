@@ -1312,7 +1312,9 @@ function serve() {
     const f = S.floor;
     const before = {
       avatar: f.avatar, tag: f.tag, goal: { ...f.goal },
-      time: S.timeLeft, twisted: S.twisted, state: S.state
+      time: S.timeLeft, twisted: S.twisted, state: S.state,
+      // whatever THIS week's mission declares, rather than last week's car
+      want: { avatar: f.twist.avatar, goal: f.twist.goal, loop: !!f.twist.loop }
     };
     // satisfy the floor, then walk onto the goal the way a player would
     S.slaps = f.desks; S.partsGiven = f.desks; S.coinsGot = f.coinQuota;
@@ -1334,7 +1336,7 @@ function serve() {
     /* The exit is a stunt loop, so the last arrival starts a ride rather than
        clearing on the spot. Wait it out the way a player does. */
     stepOnto();
-    const rode = !!S.loopRun;
+    const rode = !!S.loopRun;          // only missions with a stunt track ride one
     for (let i = 0; i < 60 && S.state !== 'clear'; i++) {
       await new Promise(r => setTimeout(r, 100));
     }
@@ -1343,7 +1345,8 @@ function serve() {
              outroShown: document.getElementById('clearOutro').hidden === false };
   });
   check('reaching the first goal hands you the thing and turns you into it',
-    twist.before.avatar !== twist.mid.avatar && twist.mid.avatar === '@car' &&
+    twist.before.avatar !== twist.mid.avatar &&
+    twist.mid.avatar === twist.before.want.avatar &&
     twist.mid.twisted && twist.mid.state !== 'clear',
     `${twist.before.avatar} -> ${twist.mid.avatar}`);
   /* "180 degrees": the point of the second half is that it is a drive. A new
@@ -1351,12 +1354,15 @@ function serve() {
      reach would make the mission impossible. */
   check('and the goal moves to the far side of the floor, still reachable',
     twist.mid.moved >= 8 && Number.isFinite(twist.mid.reachable) &&
+    twist.mid.tag === twist.before.want.goal &&
     twist.mid.tag !== twist.before.tag && twist.mid.time > twist.before.time,
     `moved ${twist.mid.moved} tiles, ${twist.mid.reachable} steps away, ` +
     `+${twist.mid.time - twist.before.time}s`);
-  check('the second arrival rides the loop, then clears with the punchline',
-    twist.rode && twist.cleared && twist.outroShown && twist.outro.length > 8,
-    `rode=${twist.rode} cleared=${twist.cleared} | ${twist.outro}`);
+  // a stunt track is one mission's twist, not a rule; only ride one if declared
+  check('the second arrival clears, riding a stunt track if the mission has one',
+    twist.cleared && twist.outroShown && twist.outro.length > 8 &&
+    twist.rode === twist.before.want.loop,
+    `loop=${twist.before.want.loop} rode=${twist.rode} | ${twist.outro}`);
 
   /* The twist is what makes a news mission worth a week rather than floor 111
      with a red border, so the tool that adds one refuses a draft without it. */
@@ -1444,11 +1450,14 @@ function serve() {
     }
     const panel = document.getElementById('taskList').textContent +
                   document.getElementById('taskListBottom').textContent;
-    return { brief, panel, both: brief + panel };
+    // the glyph a drawn marker stands in for, whatever this week's is
+    const DRAWN = { '@car': '🚗' };
+    const want = DRAWN[S.floor.goalIcon] || S.floor.goalIcon;
+    return { brief, panel, both: brief + panel, want };
   });
   check('the drawn goal marker never leaks its token into anything readable',
-    !/@car|@[a-z]+/.test(tokens.both) && tokens.panel.includes('🚗'),
-    tokens.panel.replace(/\s+/g, ' ').trim().slice(0, 90));
+    !/@[a-z]+/.test(tokens.both) && tokens.panel.includes(tokens.want),
+    `want ${tokens.want} | ${tokens.panel.replace(/\s+/g, ' ').trim().slice(0, 70)}`);
 
   /* ---- the screen behind the presenter changes with what is being said ---- */
   const shots = await page.evaluate(async () => {
@@ -1477,13 +1486,22 @@ function serve() {
     return {
       icons: [...seen], labels: [...labels],
       declared: R.NEWS.every(n => (n.bulletin || []).every(b => (b.shots || []).length >= 1)),
-      namesMusk: R.NEWS[0].bulletin.some(b => /מאסק/.test(b.text))
+      // every bulletin has to put a labelled picture on the wall screen, which
+      // is where the people and products in the story get named
+      labelled: R.NEWS.every(n => n.bulletin.every(
+        b => (b.shots || []).some(sh => sh[1] && sh[1].length > 1))),
+      // and the mission that is about Musk has to say Musk — looked up by id,
+      // because next week's story is about somebody else
+      namesSubject: (R.NEWS.find(n => /roadster/.test(n.id)) || { bulletin: [] })
+        .bulletin.some(b => /מאסק/.test(b.text))
     };
   });
   check('the screen over the presenter cycles pictures of what is being said',
     shots.icons.length >= 3 && shots.labels.length >= 3 && shots.declared,
     `${shots.icons.join(' ')} | ${shots.labels.join(' / ')}`);
-  check('and the bulletin names who the story is about', shots.namesMusk);
+  check('every bulletin labels its pictures, and names who its story is about',
+    shots.labelled && shots.namesSubject,
+    `labelled=${shots.labelled} named=${shots.namesSubject}`);
 
   /* ---- the two halves are gated the right way round ---- */
   const gating = await page.evaluate(async () => {
@@ -1509,7 +1527,9 @@ function serve() {
     S.slaps = f.desks; S.partsGiven = f.desks; S.coinsGot = f.coinQuota;
     S.chadSlapped = true;
     stepOnto();
-    return { chips, panel, took, earlyFinish, lateFinish: !!S.loopRun };
+    const finished = !!S.loopRun || S.state === 'clear';
+    return { chips, panel, took, earlyFinish, lateFinish: finished,
+             second: f.twist ? f.twist.goal.replace(/^ה/, '') : '' };
   });
   check('the car can be taken with none of the floor done — that is the mission',
     gating.took && !gating.earlyFinish && gating.lateFinish,
@@ -1517,8 +1537,8 @@ function serve() {
   /* A player who only ever reads "reach the car" never learns there is a second
      half, which is exactly the report that prompted this. */
   check('and both halves are named before you start, and while you play',
-    /קח את/.test(gating.chips) && /מסלול/.test(gating.chips) &&
-    /קח את/.test(gating.panel) && /מסלול/.test(gating.panel),
+    /קח את/.test(gating.chips) && gating.chips.includes(gating.second) &&
+    /קח את/.test(gating.panel) && gating.panel.includes(gating.second),
     gating.panel.replace(/\s+/g, ' ').trim().slice(0, 100));
 
   /* ---- the managers have to be beatable on foot ---- */
@@ -1614,8 +1634,12 @@ function serve() {
     const bad = [];
     for (const n of R.NEWS) {
       const l = n.level;
+      /* The quote is deliberately NOT here. It is somebody else's sentence
+         reproduced verbatim, so it is soft like every other quote in the game
+         — see the header of tools/vocalize.js. Everything below is text we
+         wrote ourselves, and there is no excuse for a word in it. */
       const fields = { say: l.say, saySub: l.saySub, twist: l.twist.sayAnnounce,
-                       outro: l.outro.say, quote: l.q.sayT, who: l.q.sayWho };
+                       outro: l.outro.say };
       n.bulletin.forEach((b, i) => { fields['bulletin' + i] = b.say; });
       for (const k of Object.keys(fields)) {
         for (const w of String(fields[k] || '').match(/\S+/g) || []) {
@@ -1625,7 +1649,7 @@ function serve() {
     }
     return bad;
   });
-  check('every Hebrew word the news reads out loud is pointed',
+  check('every Hebrew word the news WRITES for itself is pointed',
     newsCover.length === 0, newsCover.slice(0, 4).join(' | '));
 
   /* ---- the startup: advantages, never permission ----

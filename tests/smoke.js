@@ -1628,6 +1628,98 @@ function serve() {
   check('every Hebrew word the news reads out loud is pointed',
     newsCover.length === 0, newsCover.slice(0, 4).join(' | '));
 
+  /* ---- the startup: advantages, never permission ----
+     This is the rule the whole meta-layer rests on. A player who never opens
+     the shop must be able to finish all 110 floors, so a perk may only ever
+     ADD. The floor audit at the top of this file already runs with an empty
+     startup and passes; these pin down that it was empty, and that turning
+     every product on cannot take anything away. */
+  const perkRule = await page.evaluate(() => {
+    const R = window.RelWorld;
+    const s = R.startupState();
+    const keep = { fund: s.fund, spent: s.spent, owned: s.owned.slice() };
+
+    s.owned = []; s.fund = 0; s.spent = 0;
+    const none = R.perks();
+    const bareFloor = (R.openBriefing(30, true), {
+      time: R.state.timeLeft, keys: R.state.keys,
+      master: R.state.masterKey, shield: R.state.shield
+    });
+
+    // every product at once, which is strictly more than a player can hold early
+    s.owned = R.STARTUP.PARTS.map(p => p.id);
+    const all = R.perks();
+    const richFloor = (R.openBriefing(30, true), {
+      time: R.state.timeLeft, keys: R.state.keys,
+      master: R.state.masterKey, shield: R.state.shield
+    });
+
+    const builtAll = R.built().length;
+    Object.assign(s, keep);
+    return { none, all, bareFloor, richFloor, builtAll, products: R.STARTUP.PRODUCTS.length };
+  });
+  check('with nothing bought, no perk is in force and the floor is untouched',
+    perkRule.none.time === 0 && perkRule.none.keys === 0 && !perkRule.none.masterKey &&
+    !perkRule.none.shield && !perkRule.none.compass && perkRule.none.rivalSlow === 1 &&
+    !perkRule.bareFloor.master && perkRule.bareFloor.keys === 0,
+    JSON.stringify(perkRule.bareFloor));
+  check('and owning everything only ever adds — never less time, never fewer keys',
+    perkRule.builtAll === perkRule.products &&
+    perkRule.richFloor.time >= perkRule.bareFloor.time &&
+    perkRule.richFloor.keys >= perkRule.bareFloor.keys &&
+    perkRule.richFloor.master && perkRule.richFloor.shield &&
+    perkRule.all.rivalSlow >= 1,
+    `${perkRule.bareFloor.time}s -> ${perkRule.richFloor.time}s, ` +
+    `${perkRule.builtAll}/${perkRule.products} products`);
+
+  /* ---- the shop: money in, money out, and the catalogue follows the year ---- */
+  const shop = await page.evaluate(() => {
+    const R = window.RelWorld, s = R.startupState();
+    const keep = { fund: s.fund, spent: s.spent, owned: s.owned.slice() };
+    s.owned = []; s.spent = 0;
+
+    const part = R.STARTUP.PARTS.find(p => p.id === 'bench');
+    s.fund = part.price - 1;
+    R.buyPart('bench');
+    const tooPoor = s.owned.length === 0 && s.fund === part.price - 1;
+
+    s.fund = part.price + 500;
+    R.buyPart('bench');
+    const bought = s.owned.includes('bench') && s.fund === 500 && s.spent === part.price;
+    R.buyPart('bench');                       // again: must be a no-op
+    const noDouble = s.owned.filter(i => i === 'bench').length === 1 && s.fund === 500;
+
+    // the catalogue is the year's, so a 1981 garage is never offered an H100
+    const early = R.STARTUP.catalogueFor(1981).map(p => p.id);
+    const late = R.STARTUP.catalogueFor(2023).map(p => p.id);
+    const spaces = [0, 3000, 9000, 20000].map(v => R.STARTUP.spaceFor(v).id);
+
+    Object.assign(s, keep);
+    return { tooPoor, bought, noDouble,
+             earlyHasFuture: early.includes('h100') || early.includes('gpu'),
+             grows: late.length > early.length, spaces };
+  });
+  check('the shop takes the money once, and only when there is enough',
+    shop.tooPoor && shop.bought && shop.noDouble,
+    `poor=${shop.tooPoor} bought=${shop.bought} noDouble=${shop.noDouble}`);
+  check('the catalogue and the room grow with the career, never ahead of it',
+    !shop.earlyHasFuture && shop.grows &&
+    shop.spaces.join('>') === 'garage>office>floor>tower',
+    shop.spaces.join(' > '));
+
+  /* ---- the save has structure now, so it has to survive a bad one ---- */
+  const save = await page.evaluate(() => {
+    const read = () => JSON.parse(localStorage.getItem('rel_startup') || 'null');
+    const R = window.RelWorld, s = R.startupState();
+    const keep = JSON.stringify(s);
+    s.fund = 1234; s.owned = ['bench']; s.spent = 300;
+    R.buyPart('solder');                       // forces a write
+    const written = read();
+    Object.assign(s, JSON.parse(keep));
+    return { v: written && written.v, hasFund: typeof written.fund === 'number' };
+  });
+  check('the startup save carries a version', save.v === 1 && save.hasFund, JSON.stringify(save));
+
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await browser.close();

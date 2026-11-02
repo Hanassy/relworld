@@ -776,3 +776,65 @@ img.brand-logo { height: 14px; width: auto; vertical-align: -2px; }
 .outro .w { transition: color 0.12s ease, text-shadow 0.12s ease; }
 .outro .w.said { color: #fff; }
 .outro .w.now { color: #fff; font-weight: bold; text-shadow: 0 0 12px rgba(255, 90, 90, 0.95); }
+
+/* ===== הסטארטאפ =====
+   Shop on one side, the room on the other, both visible at once: the point is
+   to see the thing you are buying land in the room, and a wizard that hides
+   the room behind a confirm step loses exactly that. */
+.startup { background: radial-gradient(ellipse at 50% 0%, #10231c 0%, #08080e 70%); }
+.su-top {
+  display: flex; align-items: baseline; gap: 14px; justify-content: center;
+  flex-wrap: wrap; margin-bottom: 6px;
+}
+.su-top h1 { margin: 0; }
+.su-purse { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.su-fund {
+  background: rgba(255, 204, 0, 0.14); border: 1px solid var(--gold);
+  color: var(--gold); border-radius: 4px; padding: 2px 9px; font-weight: bold;
+}
+.su-space { color: #9ad; }
+
+.su-cols { display: flex; gap: 10px; align-items: flex-start; justify-content: center; flex-wrap: wrap; }
+.su-shop { width: 290px; border-color: #3ab87a; }
+.su-shop h3 { color: #3ab87a; }
+.su-note { font-size: 10.5px; color: #9ab; margin: 0 0 6px; text-align: center; }
+#suParts { list-style: none; padding: 0; margin: 0; max-height: 268px; overflow-y: auto; }
+#suParts li { margin-bottom: 3px; }
+.su-part {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  background: rgba(58, 184, 122, 0.07);
+  border: 1px solid rgba(58, 184, 122, 0.3);
+  border-radius: 5px; padding: 4px 8px;
+  color: inherit; font: inherit; text-align: right; cursor: pointer;
+}
+.su-part:hover:not(:disabled), .su-part:focus-visible:not(:disabled) {
+  background: rgba(58, 184, 122, 0.18); border-color: #3ab87a;
+}
+.su-part:disabled { cursor: default; opacity: 0.55; }
+.su-part.owned { background: rgba(58, 184, 122, 0.2); border-color: #3ab87a; opacity: 1; }
+.su-part .ic { font-size: 16px; }
+.su-part .nm { flex: 1; font-size: 11.5px; }
+.su-part .pr { font-size: 11px; color: var(--gold); font-weight: bold; }
+.su-part.owned .pr { color: #3ab87a; }
+
+.su-stage { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+#suCanvas {
+  background: #0a0f14; border: 1px solid #2a3a33; border-radius: 8px;
+  max-width: 94vw; height: auto;
+}
+/* what you have finished, and what it does on every floor from here on */
+.su-products { display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; max-width: 560px; }
+.su-prod {
+  display: flex; align-items: center; gap: 5px;
+  border: 1px solid #555; border-radius: 5px; padding: 3px 8px;
+  font-size: 10.5px; color: #889;
+}
+.su-prod.done { border-color: var(--gold); color: #ffe9a8; background: rgba(255, 204, 0, 0.1); }
+.su-prod .pi { font-size: 14px; }
+.su-prod .pk { color: #3ab87a; font-weight: bold; }
+.su-hint { font-size: 11px; color: #9ab; max-width: 620px; text-align: center; }
+
+@media (max-width: 760px) {
+  .su-shop { width: 92vw; }
+  #suParts { max-height: 150px; }
+}

@@ -23,6 +23,12 @@
        the link card, so change it if the game moves off GitHub Pages. */
     shareUrl: 'https://hanassy.github.io/relworld/',
 
+    /* Where the source lives. The game links to the repository and the
+       repository links back to the game — which is not a trick, it is the
+       ordinary relationship between a project and its own home page, and
+       both ends are the same author. */
+    repoUrl: 'https://github.com/Hanassy/relworld',
+
     /* Tagged so the visits that came from the game are tellable apart from
        the ones that came from the post about the game. */
     utm: 'utm_source=relworld&utm_medium=game',

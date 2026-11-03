@@ -1200,6 +1200,13 @@
     const line = where =>
       `${mark()} נבנה על ידי <a href="${BRAND.link(where)}" target="_blank" rel="noopener">` +
       `${BRAND.name}</a> · ${BRAND.tagline}`;
+    const repo = $('menuRepo');
+    if (repo && BRAND.repoUrl) {
+      repo.href = BRAND.repoUrl;
+      repo.addEventListener('click', () => track('repo-click'));
+    } else if (repo) {
+      repo.hidden = true;
+    }
     $('menuCredit').innerHTML = line('menu');
     $('overCredit').innerHTML = line('career-end');
     // the click is also visible at the other end through the UTM tag; counting
@@ -1286,6 +1293,8 @@
     const portrait = window.innerHeight > window.innerWidth;
     $('missionHUD').hidden = !inGame || portrait;
     $('bottomPanelContainer').hidden = !inGame || !portrait;
+    $('zoomBox').hidden = !inGame;
+    if (!inGame && !S.demo) $('demoBadge').hidden = true;
   }
 
   /* ======================= runtime state ======================= */
@@ -1304,6 +1313,9 @@
     bull: null, newsTimer: 0,   // the bulletin being read, and its opener
     twisted: false,             // has this mission's twist already been taken
     perks: null, shield: false, // what the startup bought, applied per floor
+    // remembered between visits, like the sound and narration toggles are
+    zoom: clamp(Number(store.get('rel_zoom', 1)) || 1, 0.55, 2.4),
+    demo: null,                 // the attract-mode bot, when it is driving
     loopRun: null,              // the car going round the stunt loop at the exit
     cast: null,                 // the staged scene, from the briefing until they sit
     shake: 0, globalTime: 0,
@@ -1312,6 +1324,18 @@
     particles: [], texts: [], slapFx: [],
     scoreSaved: false
   };
+
+  /* The player's own zoom sits on top of whatever the camera wants, so the
+     camera keeps framing rooms and corridors differently and the zoom just
+     scales the result. Clamped because past these the floor is either one
+     tile or a postage stamp. */
+  const ZOOM_MIN = 0.55, ZOOM_MAX = 2.4, ZOOM_STEP = 1.2;
+  function setZoom(z) {
+    S.zoom = clamp(z, ZOOM_MIN, ZOOM_MAX);
+    const el = $('zoomLevel');
+    if (el) el.textContent = Math.round(S.zoom * 100) + '%';
+    store.set('rel_zoom', S.zoom);
+  }
 
   const INTRO_DUR = 1100;      // the tower dive now lives in the briefing
   const LOOP_R = 34;           // the stunt loop at the exit, in world units
@@ -2274,6 +2298,142 @@
     return true;
   }
 
+  /* ======================= demo mode =======================
+     The game playing itself, so the page shows something moving before anyone
+     presses a key. The bot is not clever and does not need to be: it walks the
+     distance field towards whatever the floor currently wants, acts when it is
+     standing next to something it can act on, and starts a fresh floor when it
+     wins or runs out of clock. Any key or tap hands control back.
+
+     It plays the REAL game — the same tryMove, the same doAction, the same
+     rivals — rather than a scripted animation, which is the only version of
+     this worth having: a demo that cannot lose is a video. */
+
+  const DEMO_STEP = 120;        // ms between the bot's moves, slower than a player
+
+  /* A desk is only worth walking to while it still wants something. Testing
+     `isDesk` alone had the bot stand next to an already-slapped desk hitting
+     it forever: every tile is a desk, so every step was spent on nothing. */
+  function deskWants(cell) {
+    const slap = cell === TILE.DESK || cell === TILE.DESK_UP;
+    const part = S.floor.type === 0 && S.parts > 0 &&
+                 (cell === TILE.DESK || cell === TILE.DESK_SAD);
+    return slap || part;
+  }
+
+  function demoTargets() {
+    const f = S.floor, out = [];
+    const want = (x, y, why) => out.push({ x, y, why });
+    const o = objectives();
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        const v = S.map[y][x];
+        if (v === TILE.PART && f.type === 0 && S.partsGiven < f.desks) want(x, y, 'אוסף חומרה');
+        else if (v === TILE.COIN && f.type === 1 && S.coinsGot < f.coinQuota) want(x, y, 'אוסף תקציב');
+        else if (v === TILE.KEY || v === TILE.MKEY) want(x, y, 'אוסף מפתח');
+        else if (deskWants(v)) want(x, y, f.type === 0 && S.parts > 0 ? 'מחלק חומרה' : 'מחלק צ\'אפחות');
+      }
+    }
+    /* Only once the floor is finished is the exit the thing to walk at. Before
+       that the bot would beeline for it and stand there. */
+    if (!out.length || o.ready) { out.length = 0; want(f.goal.x, f.goal.y, 'רץ ליעד'); }
+    return out;
+  }
+
+  function demoStep() {
+    const d = S.demo;
+    if (!d || S.state !== 'playing') return;
+    const p = S.player;
+
+    // standing next to something worth doing? do it, and skip the walk
+    for (const [dx, dy] of DIRS) {
+      const cx = p.x + dx, cy = p.y + dy;
+      if (cx < 0 || cy < 0 || cx >= MAP_W || cy >= MAP_H) continue;
+      const cell = S.map[cy][cx];
+      const rival = S.rivals.find(r => r.x === cx && r.y === cy && r.stun <= 0);
+      if (rival || deskWants(cell)) { doAction(); return; }
+    }
+
+    /* Path through doors only if it could actually open one. Pathing as
+       though every door were open walked the bot into a locked one and left
+       it pressed against it for the rest of the floor, which is how the first
+       version of this spent three minutes at 5 desks out of 19. */
+    const canOpen = S.keys > 0 || S.masterKey;
+    const targets = demoTargets();
+    const field = distanceField(S.map, p.x, p.y, canOpen);
+    let best = null;
+    for (const t of targets) {
+      const dist = field[t.y][t.x];
+      if (!Number.isFinite(dist)) continue;
+      if (!best || dist < best.dist) best = { t, dist };
+    }
+    // nothing reachable without a key? then a key IS the objective
+    if (!best && !canOpen) {
+      for (let y = 0; y < MAP_H && !best; y++) {
+        for (let x = 0; x < MAP_W; x++) {
+          const v = S.map[y][x];
+          if ((v !== TILE.KEY && v !== TILE.MKEY) || !Number.isFinite(field[y][x])) continue;
+          if (!best || field[y][x] < best.dist) best = { t: { x, y, why: 'מחפש מפתח' }, dist: field[y][x] };
+        }
+      }
+    }
+    if (!best) { doAction(); return; }
+    d.why = best.t.why;
+
+    const to = distanceField(S.map, best.t.x, best.t.y, canOpen);
+    let step = null, here = to[p.y][p.x];
+    for (const [dx, dy] of DIRS) {
+      const nx = p.x + dx, ny = p.y + dy;
+      if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) continue;
+      if (to[ny][nx] < here) { here = to[ny][nx]; step = [dx, dy]; }
+    }
+    if (step) tryMove(step[0], step[1]);
+    else doAction();
+  }
+
+  /** Has anything at all happened lately? An attract mode that freezes is
+      worse than no attract mode, so rather than make the bot clever enough
+      never to get stuck, notice that it is stuck and start another floor. */
+  function demoProgress() {
+    return `${S.player.x},${S.player.y},${S.slaps},${S.partsGiven},${S.coinsGot},${S.keys}`;
+  }
+
+  function updateDemo(dt) {
+    const d = S.demo;
+    if (!d) return;
+    $('demoWhat').textContent = d.why || '';
+    if (S.state === 'clear' || S.state === 'over') {
+      // keep it running: another floor, so the page is never a still image
+      d.wait = (d.wait || 0) + dt;
+      if (d.wait > 2200) { d.wait = 0; startDemo(Math.floor(Math.random() * FLOORS)); }
+      return;
+    }
+    if (S.state !== 'playing') return;
+    d.acc += dt;
+    while (d.acc >= DEMO_STEP) { d.acc -= DEMO_STEP; demoStep(); }
+
+    const now = demoProgress();
+    if (now !== d.mark) { d.mark = now; d.stuck = 0; }
+    else if ((d.stuck += dt) > 7000) { startDemo(Math.floor(Math.random() * FLOORS)); }
+  }
+
+  function startDemo(level) {
+    Narrator.stop();
+    S.demo = { acc: 0, wait: 0, why: '', mark: '', stuck: 0 };
+    openBriefing(level === undefined ? 0 : level, true);
+    startLevel();
+    S.introT = S.introDur || INTRO_DUR;     // skip the dive, get straight to it
+    $('demoBadge').hidden = false;
+    track('demo-start');
+  }
+
+  function stopDemo() {
+    if (!S.demo) return;
+    S.demo = null;
+    $('demoBadge').hidden = true;
+    toMenu();
+  }
+
   function doAction() {
     if (S.state !== 'playing') return;
     for (const [dx, dy] of DIRS) {
@@ -2474,7 +2634,7 @@
       updateCast(hold ? clamp(k / hold, 0, 1) : 1);
       const e = smooth(hold ? clamp((k - hold) / (1 - hold), 0, 1) : k);
       const from = S.introFrom;
-      const target = (inRoom(p.x, p.y) ? 2.3 : 1.25) / (smallScreen ? 1.5 : 1);
+      const target = (inRoom(p.x, p.y) ? 2.3 : 1.25) / (smallScreen ? 1.5 : 1) * S.zoom;
       S.scale = from.scale + e * (target - from.scale);
       S.camX = from.x + e * (pcx - from.x);
       S.camY = from.y + e * (pcy - from.y);
@@ -2493,7 +2653,7 @@
 
     // playing / paused / clear / over: frame-rate independent easing
     const ease = 1 - Math.pow(0.85, dt / 16.67);
-    const target = (inRoom(p.x, p.y) ? 2.2 : 1.2) / (smallScreen ? 1.5 : 1);
+    const target = (inRoom(p.x, p.y) ? 2.2 : 1.2) / (smallScreen ? 1.5 : 1) * S.zoom;
     S.scale += (target - S.scale) * ease;
     S.camX += (pcx - S.camX) * ease;
     S.camY += (pcy - S.camY) * ease;
@@ -2954,6 +3114,7 @@
   function draw(dt) {
     updateCamera(dt);
     updateLoop(dt);
+    updateDemo(dt);
     ctx.clearRect(0, 0, VIEW_W, VIEW_H);
 
     const sx = S.shake > 0 ? (Math.random() - 0.5) * (15 / S.scale) : 0;
@@ -3265,6 +3426,17 @@
   };
 
   window.addEventListener('keydown', e => {
+    /* The demo hands control back on any key, which is what an attract mode
+       is for. Zoom is exempt: looking closer is not taking over. */
+    const zoomKey = e.code === 'Equal' || e.code === 'NumpadAdd' ||
+                    e.code === 'Minus' || e.code === 'NumpadSubtract';
+    if (zoomKey) {
+      e.preventDefault();
+      setZoom(e.code === 'Minus' || e.code === 'NumpadSubtract'
+        ? S.zoom / ZOOM_STEP : S.zoom * ZOOM_STEP);
+      return;
+    }
+    if (S.demo) { e.preventDefault(); stopDemo(); return; }
     const dir = KEY_DIRS[e.code];
     if (dir) { e.preventDefault(); setHeld(dir, true); return; }
     if (e.code === 'Space' || e.code === 'Enter') {
@@ -3817,6 +3989,10 @@
     if (S.startupFrom === 'clear') { S.state = 'clear'; showScreen('clear'); }
     else toMenu();
   });
+  $('btnDemo').addEventListener('click', () => startDemo(Math.min(2, FLOORS - 1)));
+  $('btnDemoStop').addEventListener('click', stopDemo);
+  $('btnZoomIn').addEventListener('click', () => setZoom(S.zoom * ZOOM_STEP));
+  $('btnZoomOut').addEventListener('click', () => setZoom(S.zoom / ZOOM_STEP));
   $('btnResume').addEventListener('click', () => togglePause(false));
   $('btnRestart').addEventListener('click', startLevel);
   $('btnPauseMenu').addEventListener('click', toMenu);
@@ -3945,6 +4121,7 @@
                       SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel,
                       NEWS, openNews, newsIndex, isNews, renderNewsPanel, tryMove,
                       openStartup, buyPart, perks, built,
+                      startDemo, stopDemo, setZoom,
                       startupState: () => startup, STARTUP };
 
   $('btnShareClear').addEventListener('click', e => shareGame(e.currentTarget));

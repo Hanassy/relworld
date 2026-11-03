@@ -1744,6 +1744,65 @@ function serve() {
   });
   check('the startup save carries a version', save.v === 1 && save.hasFund, JSON.stringify(save));
 
+  /* ---- demo mode: it has to play, and it has to let go ---- */
+  const demo = await page.evaluate(async () => {
+    const R = window.RelWorld, S = R.state;
+    R.startDemo(0);
+    for (let i = 0; i < 100 && S.state !== 'playing'; i++) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    const at0 = { x: S.player.x, y: S.player.y, slaps: S.slaps, parts: S.partsGiven };
+    await new Promise(r => setTimeout(r, 5000));
+    const at1 = { x: S.player.x, y: S.player.y, slaps: S.slaps, parts: S.partsGiven };
+    const badge = !document.getElementById('demoBadge').hidden;
+    const why = document.getElementById('demoWhat').textContent;
+    // any key hands control back — that is what an attract mode is for
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowUp', key: 'ArrowUp' }));
+    await new Promise(r => setTimeout(r, 200));
+    return {
+      badge, why,
+      // real progress, not a frozen bot standing against a locked door
+      worked: at1.slaps > at0.slaps || at1.parts > at0.parts,
+      moved: at1.x !== at0.x || at1.y !== at0.y,
+      gaveUpControl: !S.demo && S.state === 'menu',
+      badgeGone: document.getElementById('demoBadge').hidden
+    };
+  });
+  check('the demo plays the real game and makes real progress',
+    demo.worked && demo.moved && demo.badge && demo.why.length > 2,
+    `worked=${demo.worked} moved=${demo.moved} "${demo.why}"`);
+  check('and any key hands control straight back', demo.gaveUpControl && demo.badgeGone,
+    JSON.stringify({ demo: demo.gaveUpControl, badge: demo.badgeGone }));
+
+  /* ---- zoom ---- */
+  const zoom = await page.evaluate(() => {
+    const R = window.RelWorld, S = R.state;
+    const start = S.zoom;
+    R.setZoom(1); const one = S.zoom;
+    R.setZoom(99); const high = S.zoom;        // must clamp, not swallow the floor
+    R.setZoom(0.01); const low = S.zoom;
+    R.setZoom(1.5);
+    const shown = document.getElementById('zoomLevel').textContent;
+    const saved = Number(localStorage.getItem('rel_zoom'));
+    R.setZoom(start);
+    return { one, high, low, shown, saved };
+  });
+  check('zoom clamps at both ends, shows a percentage and is remembered',
+    zoom.one === 1 && zoom.high > 1 && zoom.high <= 2.4 &&
+    zoom.low >= 0.55 && zoom.low < 1 && zoom.shown === '150%' && zoom.saved === 1.5,
+    JSON.stringify(zoom));
+
+  /* ---- the game links back to where its source lives ---- */
+  const repo = await page.evaluate(() => {
+    const a = document.getElementById('menuRepo');
+    return { href: a ? a.getAttribute('href') : '', hidden: a ? a.hidden : true,
+             blank: a ? a.target : '', rel: a ? a.rel : '' };
+  });
+  check('the menu links to the repository, and safely',
+    /^https:\/\/github\.com\//.test(repo.href) && !repo.hidden &&
+    repo.blank === '_blank' && /noopener/.test(repo.rel),
+    repo.href);
+
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
   await browser.close();

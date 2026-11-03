@@ -838,3 +838,48 @@ img.brand-logo { height: 14px; width: auto; vertical-align: -2px; }
   .su-shop { width: 92vw; }
   #suParts { max-height: 150px; }
 }
+
+/* ===== זום ודמו =====
+   Both float over the canvas rather than sitting in a strip, for the same
+   reason the d-pad does: height taken from the game is height the floor
+   loses, and on a phone that was already the whole problem. */
+#zoomBox {
+  position: absolute; left: 10px; bottom: 96px; z-index: 6;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: rgba(8, 12, 20, 0.72);
+  border: 1px solid rgba(0, 229, 255, 0.35);
+  border-radius: 9px; padding: 4px 3px;
+}
+#zoomBox[hidden] { display: none; }
+#zoomBox button {
+  width: 34px; height: 30px;
+  background: rgba(0, 229, 255, 0.12); border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 6px; color: var(--cyan);
+  font: bold 17px/1 Arial, sans-serif; cursor: pointer;
+}
+#zoomBox button:hover, #zoomBox button:focus-visible { background: rgba(0, 229, 255, 0.28); }
+#zoomLevel { font-size: 9.5px; color: #9ad; min-width: 34px; text-align: center; }
+
+#demoBadge {
+  position: absolute; top: 56px; left: 50%; transform: translateX(-50%); z-index: 7;
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(8, 12, 20, 0.86);
+  border: 1px solid var(--gold); border-radius: 999px;
+  padding: 4px 6px 4px 12px;
+  font: bold 12px/1 Arial, sans-serif; color: var(--gold); letter-spacing: 2px;
+}
+#demoBadge[hidden] { display: none; }
+#demoBadge #demoWhat { letter-spacing: 0; font-weight: normal; color: #9ad; max-width: 42vw;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#demoBadge button {
+  background: var(--gold); color: #10131a; border: 0; border-radius: 999px;
+  padding: 3px 10px; font: bold 11px/1 Arial, sans-serif; cursor: pointer; letter-spacing: 0;
+}
+.demo-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--gold);
+  animation: livePulse 1.4s ease-in-out infinite;
+}
+@media (max-width: 760px) {
+  #zoomBox { bottom: 150px; }
+  #demoBadge { font-size: 10.5px; top: 48px; }
+}

@@ -60,6 +60,46 @@
   };
 
   let unlockedLevel = Math.max(0, parseInt(store.get('rel_unlocked', 0), 10) || 0);
+
+  /* ======================= the startup =======================
+     The save the game had until now was two numbers. This one has structure,
+     so it carries a version and is read defensively: a save written by a
+     later build, or half-written, must leave a playable game rather than a
+     broken one. Anything unrecognised is dropped, never trusted. */
+  const SU_KEY = 'rel_startup', SU_VERSION = 1;
+  const STARTUP = (typeof window !== 'undefined' && window.REL_STARTUP) || null;
+
+  function loadStartup() {
+    const empty = { v: SU_VERSION, fund: 0, spent: 0, owned: [] };
+    const raw = store.get(SU_KEY, null);
+    if (!raw || typeof raw !== 'object' || raw.v !== SU_VERSION) return empty;
+    const ids = STARTUP ? new Set(STARTUP.PARTS.map(p => p.id)) : new Set();
+    return {
+      v: SU_VERSION,
+      fund: Math.max(0, Number(raw.fund) || 0),
+      spent: Math.max(0, Number(raw.spent) || 0),
+      // a part id this build does not know is dropped, not kept and drawn
+      owned: Array.isArray(raw.owned) ? raw.owned.filter(id => ids.has(id)) : []
+    };
+  }
+  let startup = loadStartup();
+  const saveStartup = () => store.set(SU_KEY, startup);
+  const built = () => (STARTUP ? STARTUP.builtFrom(startup.owned) : []);
+  /** The perks in force, collapsed into one object the floor can read. */
+  function perks() {
+    const out = { time: 0, keys: 0, masterKey: false, shield: false,
+                  compass: false, rivalSlow: 1 };
+    for (const p of built()) {
+      const k = p.perk;
+      if (k.kind === 'time') out.time += k.value;
+      else if (k.kind === 'key') out.keys += k.value;
+      else if (k.kind === 'masterKey') out.masterKey = true;
+      else if (k.kind === 'shield') out.shield = true;
+      else if (k.kind === 'compass') out.compass = true;
+      else if (k.kind === 'slowRivals') out.rivalSlow = Math.max(out.rivalSlow, k.value);
+    }
+    return out;
+  }
   let highScores = store.get('rel_scores', []);
   if (!Array.isArray(highScores)) highScores = [];
   let bestScore = store.get('rel_best', 0) || 0;
@@ -1098,7 +1138,7 @@
   const SCREENS = {
     menu: $('startScreen'), opening: $('openingScreen'), briefing: $('briefingScreen'),
     clear: $('clearScreen'), paused: $('pauseScreen'), over: $('overScreen'),
-    legal: $('legalScreen'), news: $('newsScreen')
+    legal: $('legalScreen'), news: $('newsScreen'), startup: $('startupScreen')
   };
 
   /* ======================= credit, sharing, notice =======================
@@ -1160,6 +1200,13 @@
     const line = where =>
       `${mark()} נבנה על ידי <a href="${BRAND.link(where)}" target="_blank" rel="noopener">` +
       `${BRAND.name}</a> · ${BRAND.tagline}`;
+    const repo = $('menuRepo');
+    if (repo && BRAND.repoUrl) {
+      repo.href = BRAND.repoUrl;
+      repo.addEventListener('click', () => track('repo-click'));
+    } else if (repo) {
+      repo.hidden = true;
+    }
     $('menuCredit').innerHTML = line('menu');
     $('overCredit').innerHTML = line('career-end');
     // the click is also visible at the other end through the UTM tag; counting
@@ -1246,6 +1293,8 @@
     const portrait = window.innerHeight > window.innerWidth;
     $('missionHUD').hidden = !inGame || portrait;
     $('bottomPanelContainer').hidden = !inGame || !portrait;
+    $('zoomBox').hidden = !inGame;
+    if (!inGame && !S.demo) $('demoBadge').hidden = true;
   }
 
   /* ======================= runtime state ======================= */
@@ -1263,6 +1312,10 @@
     newsAt: 0,                  // which bulletin the news screen is showing
     bull: null, newsTimer: 0,   // the bulletin being read, and its opener
     twisted: false,             // has this mission's twist already been taken
+    perks: null, shield: false, // what the startup bought, applied per floor
+    // remembered between visits, like the sound and narration toggles are
+    zoom: clamp(Number(store.get('rel_zoom', 1)) || 1, 0.55, 2.4),
+    demo: null,                 // the attract-mode bot, when it is driving
     loopRun: null,              // the car going round the stunt loop at the exit
     cast: null,                 // the staged scene, from the briefing until they sit
     shake: 0, globalTime: 0,
@@ -1271,6 +1324,18 @@
     particles: [], texts: [], slapFx: [],
     scoreSaved: false
   };
+
+  /* The player's own zoom sits on top of whatever the camera wants, so the
+     camera keeps framing rooms and corridors differently and the zoom just
+     scales the result. Clamped because past these the floor is either one
+     tile or a postage stamp. */
+  const ZOOM_MIN = 0.55, ZOOM_MAX = 2.4, ZOOM_STEP = 1.2;
+  function setZoom(z) {
+    S.zoom = clamp(z, ZOOM_MIN, ZOOM_MAX);
+    const el = $('zoomLevel');
+    if (el) el.textContent = Math.round(S.zoom * 100) + '%';
+    store.set('rel_zoom', S.zoom);
+  }
 
   const INTRO_DUR = 1100;      // the tower dive now lives in the briefing
   const LOOP_R = 34;           // the stunt loop at the exit, in world units
@@ -1426,6 +1491,16 @@
     S.combo = 0; S.comboTimer = 0;
     S.particles = []; S.texts = []; S.slapFx = [];
     S.timeLeft = f.time;
+    /* What the startup bought you. Every one of these is additive and in the
+       player's favour: more time, more keys, a softer chase. None of them is
+       ever required to finish a floor, which is the rule the whole meta-layer
+       is built on — see the header of src/startup.js. */
+    const pk = perks();
+    S.perks = pk;
+    S.timeLeft += pk.time;
+    S.keys += pk.keys;
+    if (pk.masterKey) S.masterKey = true;
+    S.shield = pk.shield;
     spawnRivals();
     return f;
   }
@@ -1953,7 +2028,7 @@
            (MOVE_MS) and does not path perfectly; these do. At the old floor of
            150 a top-floor manager was only a third slower than you while
            walking straight at you, which is not a chase, it is a tax. */
-        speed: clamp(360 - S.level * 1.3 - i * 25, 200, 360),
+        speed: clamp(360 - S.level * 1.3 - i * 25, 200, 360) * ((S.perks && S.perks.rivalSlow) || 1),
         boss: i === 0, face: RIVAL_FACES[i % RIVAL_FACES.length]
       });
     }
@@ -2039,6 +2114,17 @@
       store.set('rel_unlocked', unlockedLevel);
     }
     if (S.score > bestScore) { bestScore = S.score; store.set('rel_best', bestScore); }
+
+    /* The floor pays the startup. It scales with the floor so a late career
+       can afford late hardware, and with how cleanly you played, but the
+       floor is paid for even when it went badly — the meta-layer must never
+       punish a player twice for the same bad floor. */
+    const pay = 380 + S.level * 4 + Math.round(S.timeLeft) * 2 +
+                (MAX_STRIKES - S.strikes) * 60;
+    startup.fund += pay;
+    saveStartup();
+    S.lastPay = pay;
+
     addText(S.player.x, S.player.y, 'קודמת!', '#0f0');
     addParticles(S.player.x, S.player.y, '#0f0', 60);
 
@@ -2046,8 +2132,10 @@
     $('clearStats').innerHTML = [
       `<div class="good">⏳ בונוס זמן: +${timeBonus}</div>`,
       `<div class="good">🛡️ בונוס ללא אזהרות: +${strikeBonus}</div>`,
-      `<div>📈 ניקוד מצטבר: <b>${S.score}</b></div>`
+      `<div>📈 ניקוד מצטבר: <b>${S.score}</b></div>`,
+      `<div class="good">🏭 לקופת הסטארטאפ: +₪${S.lastPay}</div>`
     ].join('');
+    refreshStartupButton();
     /* A news mission signs off with its own punchline before the real quote.
        Both are read aloud as one script, so the read-along runs straight
        through from the joke into the thing somebody actually said. */
@@ -2210,6 +2298,142 @@
     return true;
   }
 
+  /* ======================= demo mode =======================
+     The game playing itself, so the page shows something moving before anyone
+     presses a key. The bot is not clever and does not need to be: it walks the
+     distance field towards whatever the floor currently wants, acts when it is
+     standing next to something it can act on, and starts a fresh floor when it
+     wins or runs out of clock. Any key or tap hands control back.
+
+     It plays the REAL game — the same tryMove, the same doAction, the same
+     rivals — rather than a scripted animation, which is the only version of
+     this worth having: a demo that cannot lose is a video. */
+
+  const DEMO_STEP = 120;        // ms between the bot's moves, slower than a player
+
+  /* A desk is only worth walking to while it still wants something. Testing
+     `isDesk` alone had the bot stand next to an already-slapped desk hitting
+     it forever: every tile is a desk, so every step was spent on nothing. */
+  function deskWants(cell) {
+    const slap = cell === TILE.DESK || cell === TILE.DESK_UP;
+    const part = S.floor.type === 0 && S.parts > 0 &&
+                 (cell === TILE.DESK || cell === TILE.DESK_SAD);
+    return slap || part;
+  }
+
+  function demoTargets() {
+    const f = S.floor, out = [];
+    const want = (x, y, why) => out.push({ x, y, why });
+    const o = objectives();
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        const v = S.map[y][x];
+        if (v === TILE.PART && f.type === 0 && S.partsGiven < f.desks) want(x, y, 'אוסף חומרה');
+        else if (v === TILE.COIN && f.type === 1 && S.coinsGot < f.coinQuota) want(x, y, 'אוסף תקציב');
+        else if (v === TILE.KEY || v === TILE.MKEY) want(x, y, 'אוסף מפתח');
+        else if (deskWants(v)) want(x, y, f.type === 0 && S.parts > 0 ? 'מחלק חומרה' : 'מחלק צ\'אפחות');
+      }
+    }
+    /* Only once the floor is finished is the exit the thing to walk at. Before
+       that the bot would beeline for it and stand there. */
+    if (!out.length || o.ready) { out.length = 0; want(f.goal.x, f.goal.y, 'רץ ליעד'); }
+    return out;
+  }
+
+  function demoStep() {
+    const d = S.demo;
+    if (!d || S.state !== 'playing') return;
+    const p = S.player;
+
+    // standing next to something worth doing? do it, and skip the walk
+    for (const [dx, dy] of DIRS) {
+      const cx = p.x + dx, cy = p.y + dy;
+      if (cx < 0 || cy < 0 || cx >= MAP_W || cy >= MAP_H) continue;
+      const cell = S.map[cy][cx];
+      const rival = S.rivals.find(r => r.x === cx && r.y === cy && r.stun <= 0);
+      if (rival || deskWants(cell)) { doAction(); return; }
+    }
+
+    /* Path through doors only if it could actually open one. Pathing as
+       though every door were open walked the bot into a locked one and left
+       it pressed against it for the rest of the floor, which is how the first
+       version of this spent three minutes at 5 desks out of 19. */
+    const canOpen = S.keys > 0 || S.masterKey;
+    const targets = demoTargets();
+    const field = distanceField(S.map, p.x, p.y, canOpen);
+    let best = null;
+    for (const t of targets) {
+      const dist = field[t.y][t.x];
+      if (!Number.isFinite(dist)) continue;
+      if (!best || dist < best.dist) best = { t, dist };
+    }
+    // nothing reachable without a key? then a key IS the objective
+    if (!best && !canOpen) {
+      for (let y = 0; y < MAP_H && !best; y++) {
+        for (let x = 0; x < MAP_W; x++) {
+          const v = S.map[y][x];
+          if ((v !== TILE.KEY && v !== TILE.MKEY) || !Number.isFinite(field[y][x])) continue;
+          if (!best || field[y][x] < best.dist) best = { t: { x, y, why: 'מחפש מפתח' }, dist: field[y][x] };
+        }
+      }
+    }
+    if (!best) { doAction(); return; }
+    d.why = best.t.why;
+
+    const to = distanceField(S.map, best.t.x, best.t.y, canOpen);
+    let step = null, here = to[p.y][p.x];
+    for (const [dx, dy] of DIRS) {
+      const nx = p.x + dx, ny = p.y + dy;
+      if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) continue;
+      if (to[ny][nx] < here) { here = to[ny][nx]; step = [dx, dy]; }
+    }
+    if (step) tryMove(step[0], step[1]);
+    else doAction();
+  }
+
+  /** Has anything at all happened lately? An attract mode that freezes is
+      worse than no attract mode, so rather than make the bot clever enough
+      never to get stuck, notice that it is stuck and start another floor. */
+  function demoProgress() {
+    return `${S.player.x},${S.player.y},${S.slaps},${S.partsGiven},${S.coinsGot},${S.keys}`;
+  }
+
+  function updateDemo(dt) {
+    const d = S.demo;
+    if (!d) return;
+    $('demoWhat').textContent = d.why || '';
+    if (S.state === 'clear' || S.state === 'over') {
+      // keep it running: another floor, so the page is never a still image
+      d.wait = (d.wait || 0) + dt;
+      if (d.wait > 2200) { d.wait = 0; startDemo(Math.floor(Math.random() * FLOORS)); }
+      return;
+    }
+    if (S.state !== 'playing') return;
+    d.acc += dt;
+    while (d.acc >= DEMO_STEP) { d.acc -= DEMO_STEP; demoStep(); }
+
+    const now = demoProgress();
+    if (now !== d.mark) { d.mark = now; d.stuck = 0; }
+    else if ((d.stuck += dt) > 7000) { startDemo(Math.floor(Math.random() * FLOORS)); }
+  }
+
+  function startDemo(level) {
+    Narrator.stop();
+    S.demo = { acc: 0, wait: 0, why: '', mark: '', stuck: 0 };
+    openBriefing(level === undefined ? 0 : level, true);
+    startLevel();
+    S.introT = S.introDur || INTRO_DUR;     // skip the dive, get straight to it
+    $('demoBadge').hidden = false;
+    track('demo-start');
+  }
+
+  function stopDemo() {
+    if (!S.demo) return;
+    S.demo = null;
+    $('demoBadge').hidden = true;
+    toMenu();
+  }
+
   function doAction() {
     if (S.state !== 'playing') return;
     for (const [dx, dy] of DIRS) {
@@ -2284,6 +2508,17 @@
   }
 
   function takeStrike(rival) {
+    /* The cloud product buys one forgiven warning per floor. It is spent the
+       first time it would have cost you one, and it says so, because a perk
+       the player cannot see working is a perk they do not believe in. */
+    if (S.shield) {
+      S.shield = false;
+      Audio.deny();
+      addText(S.player.x, S.player.y, '☁️ המוצר כיסה עליך', '#7ab8d8');
+      addParticles(S.player.x, S.player.y, '#7ab8d8', 18);
+      if (rival) rival.stun = 90;
+      return;
+    }
     S.strikes++;
     penalty(300);
     S.timeLeft = Math.max(1, S.timeLeft - 12);
@@ -2399,7 +2634,7 @@
       updateCast(hold ? clamp(k / hold, 0, 1) : 1);
       const e = smooth(hold ? clamp((k - hold) / (1 - hold), 0, 1) : k);
       const from = S.introFrom;
-      const target = (inRoom(p.x, p.y) ? 2.3 : 1.25) / (smallScreen ? 1.5 : 1);
+      const target = (inRoom(p.x, p.y) ? 2.3 : 1.25) / (smallScreen ? 1.5 : 1) * S.zoom;
       S.scale = from.scale + e * (target - from.scale);
       S.camX = from.x + e * (pcx - from.x);
       S.camY = from.y + e * (pcy - from.y);
@@ -2418,7 +2653,7 @@
 
     // playing / paused / clear / over: frame-rate independent easing
     const ease = 1 - Math.pow(0.85, dt / 16.67);
-    const target = (inRoom(p.x, p.y) ? 2.2 : 1.2) / (smallScreen ? 1.5 : 1);
+    const target = (inRoom(p.x, p.y) ? 2.2 : 1.2) / (smallScreen ? 1.5 : 1) * S.zoom;
     S.scale += (target - S.scale) * ease;
     S.camX += (pcx - S.camX) * ease;
     S.camY += (pcy - S.camY) * ease;
@@ -2879,6 +3114,7 @@
   function draw(dt) {
     updateCamera(dt);
     updateLoop(dt);
+    updateDemo(dt);
     ctx.clearRect(0, 0, VIEW_W, VIEW_H);
 
     const sx = S.shake > 0 ? (Math.random() - 0.5) * (15 / S.scale) : 0;
@@ -3190,6 +3426,17 @@
   };
 
   window.addEventListener('keydown', e => {
+    /* The demo hands control back on any key, which is what an attract mode
+       is for. Zoom is exempt: looking closer is not taking over. */
+    const zoomKey = e.code === 'Equal' || e.code === 'NumpadAdd' ||
+                    e.code === 'Minus' || e.code === 'NumpadSubtract';
+    if (zoomKey) {
+      e.preventDefault();
+      setZoom(e.code === 'Minus' || e.code === 'NumpadSubtract'
+        ? S.zoom / ZOOM_STEP : S.zoom * ZOOM_STEP);
+      return;
+    }
+    if (S.demo) { e.preventDefault(); stopDemo(); return; }
     const dir = KEY_DIRS[e.code];
     if (dir) { e.preventDefault(); setHeld(dir, true); return; }
     if (e.code === 'Space' || e.code === 'Enter') {
@@ -3485,6 +3732,175 @@
     readBulletin();
   }
 
+  /* ======================= the startup screen =======================
+     A shop and a room, side by side. Buying something puts it in the room
+     immediately and the room is always on screen, because watching the garage
+     fill up is the entire reward — a confirm dialog in between would hide the
+     one thing worth seeing. */
+
+  const suCanvas = $('suCanvas');
+  const suCtx = suCanvas ? suCanvas.getContext('2d') : null;
+
+  /** The era the shop is stocked for: the year of the highest floor reached,
+      so the catalogue grows with the career and a 1981 garage is never shown
+      an H100. Never the CURRENT floor — that would make the shop shrink when
+      you replay an early floor. */
+  const startupEra = () => {
+    const lvl = Math.min(LEVELS.length - 1, Math.max(unlockedLevel, S.level));
+    return (LEVELS[lvl] && LEVELS[lvl].era) || 1981;
+  };
+
+  function buyPart(id) {
+    if (!STARTUP) return;
+    const part = STARTUP.PARTS.find(p => p.id === id);
+    if (!part || startup.owned.includes(id) || startup.fund < part.price) return;
+    startup.fund -= part.price;
+    startup.spent += part.price;
+    startup.owned.push(id);
+    saveStartup();
+    Audio.part();
+    track('startup-buy', { part: id });
+    renderStartup();
+  }
+
+  /** The room, drawn with the same isometric primitives as a floor. Slots are
+      fixed positions rather than free placement: it costs a tenth of a builder
+      and keeps the thing that matters, which is that the room visibly fills. */
+  function drawStartupRoom() {
+    if (!suCtx || !STARTUP) return;
+    const W = suCanvas.width, H = suCanvas.height;
+    const space = STARTUP.spaceFor(startup.spent);
+    const owned = startup.owned
+      .map(id => STARTUP.PARTS.find(p => p.id === id))
+      .filter(Boolean)
+      .slice(0, space.slots);
+
+    suCtx.clearRect(0, 0, W, H);
+    const cols = space.cols, rows = Math.ceil(space.slots / cols);
+    const TWs = 56, THs = 30;
+    const ox = W / 2, oy = H / 2 - (rows * THs) / 2 + 24;
+    const iso = (c, r) => ({ x: ox + (c - r) * TWs / 2, y: oy + (c + r) * THs / 2 });
+
+    // the floor of the room, back to front so the near tiles overlap the far
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c;
+        const { x, y } = iso(c - (cols - 1) / 2, r - (rows - 1) / 2);
+        const filled = i < owned.length;
+        suCtx.beginPath();
+        suCtx.moveTo(x, y - THs / 2);
+        suCtx.lineTo(x + TWs / 2, y);
+        suCtx.lineTo(x, y + THs / 2);
+        suCtx.lineTo(x - TWs / 2, y);
+        suCtx.closePath();
+        suCtx.fillStyle = filled ? '#1d2c26' : '#141a18';
+        suCtx.fill();
+        suCtx.strokeStyle = filled ? 'rgba(58,184,122,0.5)' : 'rgba(255,255,255,0.07)';
+        suCtx.lineWidth = 1;
+        suCtx.stroke();
+        if (!filled) continue;
+        const part = owned[i];
+        suCtx.save();
+        suCtx.shadowColor = 'rgba(0,0,0,0.6)'; suCtx.shadowBlur = 6;
+        suCtx.font = '26px Arial';
+        suCtx.textAlign = 'center';
+        suCtx.textBaseline = 'alphabetic';
+        suCtx.fillText(part.icon, x, y - 4);
+        suCtx.restore();
+      }
+    }
+
+    // and the sign over the door, which is how you know the room grew
+    suCtx.save();
+    suCtx.font = 'bold 14px Arial';
+    suCtx.textAlign = 'center';
+    suCtx.fillStyle = 'rgba(154,221,255,0.65)';
+    suCtx.fillText(`${space.name} · ${owned.length}/${space.slots}`, W / 2, 22);
+    suCtx.restore();
+  }
+
+  function renderStartup() {
+    if (!STARTUP) return;
+    const era = startupEra();
+    const space = STARTUP.spaceFor(startup.spent);
+    $('suFund').textContent = startup.fund.toLocaleString('he-IL');
+    $('suSpace').textContent = space.name;
+    $('suEra').textContent = `מה שאפשר להשיג ב-${era}`;
+
+    const list = $('suParts');
+    list.textContent = '';
+    for (const part of STARTUP.catalogueFor(era)) {
+      const owned = startup.owned.includes(part.id);
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'su-part' + (owned ? ' owned' : '');
+      btn.disabled = owned || startup.fund < part.price;
+      const ic = document.createElement('span'); ic.className = 'ic'; ic.textContent = part.icon;
+      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = part.name;
+      const pr = document.createElement('span'); pr.className = 'pr';
+      pr.textContent = owned ? '✓' : '₪' + part.price.toLocaleString('he-IL');
+      btn.append(ic, nm, pr);
+      if (!owned) btn.addEventListener('click', () => buyPart(part.id));
+      li.appendChild(btn);
+      list.appendChild(li);
+    }
+
+    /* Products, finished or not, with what each one does. Showing the locked
+       ones is the point: it is what tells you why to buy the next part. */
+    const PERK_TEXT = {
+      time: v => `+${v} שניות בכל קומה`,
+      key: v => `${v} מפתח בהתחלה`,
+      masterKey: () => 'מאסטר-קי בהתחלה',
+      shield: () => 'אזהרה אחת נסלחת',
+      compass: () => 'היעד תמיד מסומן',
+      slowRivals: () => 'המנהלים איטיים יותר'
+    };
+    const have = new Set(startup.owned);
+    const box = $('suProducts');
+    box.textContent = '';
+    for (const prod of STARTUP.PRODUCTS) {
+      const done = prod.needs.every(n => have.has(n));
+      // something already built always shows, whatever year it is now: hiding
+      // a finished product because the era moved on loses the perk's label
+      if (era < prod.from && !done) continue;
+      const el = document.createElement('div');
+      el.className = 'su-prod' + (done ? ' done' : '');
+      const pi = document.createElement('span'); pi.className = 'pi'; pi.textContent = prod.icon;
+      const nm = document.createElement('span');
+      const missing = prod.needs.filter(n => !have.has(n)).length;
+      nm.textContent = done ? prod.name : `${prod.name} (חסרים ${missing})`;
+      const pk = document.createElement('span'); pk.className = 'pk';
+      pk.textContent = (PERK_TEXT[prod.perk.kind] || (() => ''))(prod.perk.value);
+      el.append(pi, nm, pk);
+      el.title = `${prod.blurb}  —  ${prod.was}`;
+      box.appendChild(el);
+    }
+
+    const done = built();
+    $('suHint').textContent = done.length
+      ? `${done.length} מוצרים מוכנים. מה שהם נותנים חל על כל קומה מכאן והלאה — אף קומה לא נחסמת בלעדיהם.`
+      : 'קנה רכיבים, והם יתחברו לבד למוצר. מוצר מוכן מקל על הקומות הבאות — אף פעם לא חוסם אותן.';
+    drawStartupRoom();
+  }
+
+  function openStartup(from) {
+    if (!STARTUP) return;
+    S.startupFrom = from || 'menu';
+    S.state = 'startup';
+    renderStartup();
+    showScreen('startup');
+    track('startup-open');
+  }
+
+  /** The clear screen offers the shop but never interrupts with it: the main
+      button stays "next floor", so a player who does not care loses nothing. */
+  function refreshStartupButton() {
+    const b = $('btnStartupClear');
+    if (!b || !STARTUP) return;
+    b.textContent = `🏭 הסטארטאפ שלי (₪${startup.fund.toLocaleString('he-IL')})`;
+  }
+
   function renderMenu() {
     const frag = document.createDocumentFragment();
     for (let i = 0; i < FLOORS; i++) {
@@ -3522,6 +3938,11 @@
       });
     }
     renderNewsPanel();
+    const sb = $('btnStartupMenu');
+    if (sb) {
+      sb.hidden = !STARTUP;
+      sb.textContent = `🏭 הסטארטאפ שלי (₪${startup.fund.toLocaleString('he-IL')})`;
+    }
     $('bestScore').textContent = bestScore;
     $('contLvl').textContent = unlockedLevel + 1;
     $('btnContinue').hidden = unlockedLevel === 0;
@@ -3561,6 +3982,17 @@
       openBriefing(S.level + 1, false);
     }
   });
+  $('btnStartupClear').addEventListener('click', () => openStartup('clear'));
+  $('btnStartupMenu').addEventListener('click', () => openStartup('menu'));
+  $('btnStartupBack').addEventListener('click', () => {
+    // back to exactly where you came from, so the shop never costs a floor
+    if (S.startupFrom === 'clear') { S.state = 'clear'; showScreen('clear'); }
+    else toMenu();
+  });
+  $('btnDemo').addEventListener('click', () => startDemo(Math.min(2, FLOORS - 1)));
+  $('btnDemoStop').addEventListener('click', stopDemo);
+  $('btnZoomIn').addEventListener('click', () => setZoom(S.zoom * ZOOM_STEP));
+  $('btnZoomOut').addEventListener('click', () => setZoom(S.zoom / ZOOM_STEP));
   $('btnResume').addEventListener('click', () => togglePause(false));
   $('btnRestart').addEventListener('click', startLevel);
   $('btnPauseMenu').addEventListener('click', toMenu);
@@ -3687,7 +4119,10 @@
                       stopNarration: Narrator.stop,
                       view: () => ({ w: VIEW_W, h: VIEW_H }), towerShot,
                       SHELL_TOP, SHELL_BOT, ZH, TH, LEVELS, activeFloorForLevel,
-                      NEWS, openNews, newsIndex, isNews, renderNewsPanel, tryMove };
+                      NEWS, openNews, newsIndex, isNews, renderNewsPanel, tryMove,
+                      openStartup, buyPart, perks, built,
+                      startDemo, stopDemo, setZoom,
+                      startupState: () => startup, STARTUP };
 
   $('btnShareClear').addEventListener('click', e => shareGame(e.currentTarget));
   $('btnShareOver').addEventListener('click', e => shareGame(e.currentTarget));

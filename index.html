@@ -89,6 +89,8 @@
     <div class="btn-row">
       <button type="button" class="main-btn" id="btnNewCareer">התחל קריירה חדשה</button>
       <button type="button" class="main-btn ghost" id="btnContinue">המשך מקומה <span id="contLvl">1</span></button>
+      <button type="button" class="main-btn ghost" id="btnStartupMenu" hidden>🏭 הסטארטאפ שלי</button>
+      <button type="button" class="main-btn ghost" id="btnDemo">🎬 דמו</button>
     </div>
 
     <p id="menuDisclaimer" class="disclaimer">
@@ -96,6 +98,7 @@
       <button type="button" id="btnLegal" class="linklike">לפרטים</button>
     </p>
     <p id="menuCredit" class="credit"></p>
+    <p class="credit"><a id="menuRepo" href="#" target="_blank" rel="noopener">⌨️ הקוד ב-GitHub</a></p>
   </div>
 
   <!-- ===== הבהרה: מה אמיתי כאן ומה לא ===== -->
@@ -191,7 +194,38 @@
     <div id="clearQuote" class="quote"></div>
     <div class="btn-row">
       <button type="button" class="main-btn" id="btnNext">לקומה הבאה</button>
+      <button type="button" class="main-btn ghost" id="btnStartupClear">🏭 הסטארטאפ שלי</button>
       <button type="button" class="main-btn ghost" id="btnShareClear">🔗 שתף</button>
+    </div>
+  </div>
+
+  <!-- ===== הסטארטאפ: חנות מצד אחד, החדר מהצד השני ===== -->
+  <div id="startupScreen" class="overlayScreen startup" hidden>
+    <div class="su-top">
+      <h1>🏭 הסטארטאפ שלי</h1>
+      <div class="su-purse">
+        <span class="su-fund">₪<b id="suFund">0</b></span>
+        <span class="su-space" id="suSpace">גראז'</span>
+      </div>
+    </div>
+
+    <div class="su-cols">
+      <div class="panel su-shop">
+        <h3>🛒 חנות</h3>
+        <p class="su-note" id="suEra"></p>
+        <ul id="suParts"></ul>
+      </div>
+
+      <div class="su-stage">
+        <canvas id="suCanvas" width="560" height="320" role="img"
+                aria-label="החדר של הסטארטאפ"></canvas>
+        <div id="suProducts" class="su-products"></div>
+      </div>
+    </div>
+
+    <p class="su-hint" id="suHint"></p>
+    <div class="btn-row">
+      <button type="button" class="main-btn" id="btnStartupBack">חזרה</button>
     </div>
   </div>
 
@@ -231,6 +265,20 @@
     <div id="taskListBottom"></div>
     <div id="timeDisplayBottom" class="timer">⏳ 0:00</div>
   </div>
+  <!-- זום: צף מעל המשחק, לא תופס גובה -->
+  <div id="zoomBox" hidden>
+    <button type="button" id="btnZoomIn" aria-label="התקרב">＋</button>
+    <span id="zoomLevel">100%</span>
+    <button type="button" id="btnZoomOut" aria-label="התרחק">−</button>
+  </div>
+
+  <!-- דמו: המשחק משחק את עצמו -->
+  <div id="demoBadge" hidden>
+    <span class="demo-dot"></span>DEMO
+    <span id="demoWhat"></span>
+    <button type="button" id="btnDemoStop">צא מהדמו</button>
+  </div>
+
   <div id="touchControls">
     <div class="dpad">
       <div></div>
@@ -262,6 +310,7 @@
 <script src="src/brand.js?v=dev"></script>
 <script src="src/levels.js?v=dev"></script>
 <script src="src/news.js?v=dev"></script>
+<script src="src/startup.js?v=dev"></script>
 <script src="src/game.js?v=dev"></script>
 </body>
 </html>

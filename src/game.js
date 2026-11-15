@@ -199,6 +199,21 @@
   const RIVAL_FACES = ['👺', '🤵', '👔'];
   const GOAL_ICON = ['🔼', '🗓️', '👩‍⚖'];
   const GOAL_FALLBACK = ['מעלית', 'ישיבה', 'HR'];
+
+  /* The slap is the game's central joke and it stays. But a mission set in a
+     school is played by people who do not find it funny there, so a level can
+     ask for the gentle reading of exactly the same mechanic: you walk up to a
+     worker and tell them they are doing well. Same key, same count, same
+     objective — only the word, the label, the face and the sound change.
+     Default is off; only a mission that sets `gentle` gets it. */
+  const MECH = {
+    rough: { many: 'צ\'אפחות', one: 'צ\'אפחה', hit: 'WAKE UP!', boss: 'BOOM!',
+             hue: '#ff5555', face: '😭', shake: 12, bossShake: 10, sfx: 'slap' },
+    gentle: { many: 'טפיחות על השכם', one: 'טפיחה על השכם', hit: 'אלוף!',
+              boss: 'CHAMPION!', hue: '#3ab87a', face: '🤪', shake: 4,
+              bossShake: 3, sfx: 'praise' }
+  };
+  const mech = () => (S.floor && S.floor.gentle) ? MECH.gentle : MECH.rough;
   /* A goal marker beginning with @ is drawn on the canvas rather than typed,
      because the emoji set has no white car. Anywhere the marker appears as
      TEXT — the task panel, the briefing chips — it needs a glyph instead, or
@@ -280,6 +295,19 @@
       } catch (e) { /* ignore */ }
     }
 
+    function sweep(from, to, dur, vol) {
+      if (!ctx || !options.sfx) return;
+      try {
+        const osc = ctx.createOscillator(), g = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(from, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(to, ctx.currentTime + dur);
+        g.gain.setValueAtTime(vol, ctx.currentTime);
+        g.gain.linearRampToValueAtTime(0, ctx.currentTime + dur);
+        osc.connect(g); g.connect(master);
+        osc.start(); osc.stop(ctx.currentTime + dur);
+      } catch (e) { /* ignore */ }
+    }
 
     // music: a bass line plus pad chords, driven by the main loop (not setInterval,
     // so it stays in sync with pause and with a backgrounded tab).
@@ -323,8 +351,8 @@
         noise(0.5, 0.16, 0.72);
       },
       givePart() { tone(600, 'triangle', 0.1, 0.25); tone(800, 'triangle', 0.2, 0.25, 0.1); },
-      /* A pat on the back, not a hit: two soft rising notes instead of the
-         low square and the downward sweep this used to be. */
+      slap() { tone(150, 'square', 0.1, 0.5); sweep(600, 200, 0.5, 0.25); },
+      // the gentle mechanic: two soft rising notes, no impact
       praise() { tone(520, 'triangle', 0.09, 0.3); tone(780, 'triangle', 0.14, 0.26, 0.07); },
       deny() { tone(180, 'square', 0.12, 0.25); tone(120, 'square', 0.18, 0.25, 0.1); },
       tick() { tone(1000, 'square', 0.05, 0.1); },
@@ -482,7 +510,7 @@
    *   trading    - long desk rows all facing the ticker wall
    *   cubicles   - 2x2 pods separated by walkways
    * The outermost ring of every room is left clear, so corridors always get in
-   * and every seat has an aisle beside it to be reached from.
+   * and every seat has an aisle beside it to be slapped from.
    */
   function furnishRoom(map, r, style, start, budget) {
     if (budget <= 0) return 0;
@@ -1113,6 +1141,7 @@
              type: story.type, tag: goalTag(index), kit: kitFor(index),
              avatar: story.avatar, goalName: story.goalName || GOAL_NAME[story.type],
              twist: (LEVELS[index] && LEVELS[index].twist) || null,
+             gentle: !!(LEVELS[index] && LEVELS[index].gentle),
              goalIcon: (LEVELS[index] && LEVELS[index].goalIcon) || null,
              loop: false,
              scene: sceneName, palette: scene.pal, roomColor: scene.room, corrColor: scene.corr,
@@ -1294,8 +1323,8 @@
     strikes: 0, combo: 0, comboTimer: 0,
     floor: null, map: null, roomMask: null,
     player: { x: 0, y: 0, animY: 0, invuln: 0 },
-    rivals: [], chadPraised: false,
-    praises: 0, partsGiven: 0, coinsGot: 0,
+    rivals: [], chadSlapped: false,
+    slaps: 0, partsGiven: 0, coinsGot: 0,
     timeLeft: 0,
     camX: 0, camY: 350, scale: 0.13, buildingAlpha: 1, introT: 0, introDur: 0,
     newsAt: 0,                  // which bulletin the news screen is showing
@@ -1310,7 +1339,7 @@
     shake: 0, globalTime: 0,
     brief: { t: 0, shots: [], progress: 0, tourBase: -1, words: [], textLen: 1, wordIndex: -2 },
     introFrom: { x: 0, y: 350, scale: 0.13, alpha: 1 },
-    particles: [], texts: [], praiseFx: [],
+    particles: [], texts: [], slapFx: [],
     scoreSaved: false
   };
 
@@ -1404,9 +1433,9 @@
     const f = S.floor, list = [];
     if (f.type === 0) list.push({ label: `שדרג עמדות ${f.kit.b}: ${S.partsGiven}/${f.desks}`, done: S.partsGiven >= f.desks });
     if (f.type === 1) list.push({ label: `אסוף תקציב: ${S.coinsGot}/${f.coinQuota}`, done: S.coinsGot >= f.coinQuota });
-    list.push({ label: `חלק טפיחות על השכם: ${S.praises}/${f.desks}`, done: S.praises >= f.desks });
-    // congratulating the rival starts the sprint, so it is the last thing you do
-    if (f.type === 2) list.push({ label: 'ואז: צ\'אפחה לבוסניק 👺', done: S.chadPraised });
+    list.push({ label: `חלק ${mech().many}: ${S.slaps}/${f.desks}`, done: S.slaps >= f.desks });
+    // the boss slap starts the sprint, so it has to be the last thing you do
+    if (f.type === 2) list.push({ label: 'ואז: צ\'אפחה לבוסניק 👺', done: S.chadSlapped });
     const ready = list.every(o => o.done);
     const icon = iconText(f.goalIcon || GOAL_ICON[f.type]);
     if (f.twist && !S.twisted) {
@@ -1475,10 +1504,10 @@
     S.roomMask = f.roomMask;
     // you cannot be caught before you have had a chance to move
     S.player = { x: f.start.x, y: f.start.y, animY: 0, invuln: ARRIVAL_GRACE };
-    S.praises = 0; S.partsGiven = 0; S.coinsGot = 0; S.chadPraised = false;
+    S.slaps = 0; S.partsGiven = 0; S.coinsGot = 0; S.chadSlapped = false;
     S.twisted = false; S.loopRun = null;
     S.combo = 0; S.comboTimer = 0;
-    S.particles = []; S.texts = []; S.praiseFx = [];
+    S.particles = []; S.texts = []; S.slapFx = [];
     S.timeLeft = f.time;
     /* What the startup bought you. Every one of these is additive and in the
        player's favour: more time, more keys, a softer chase. None of them is
@@ -1953,8 +1982,8 @@
     $('bObjectives').innerHTML = [
       f.type === 0 ? `${f.kit.icon} שדרג ${f.desks} עמדות ${f.kit.b}` : '',
       f.type === 1 ? `🪙 אסוף ${f.coinQuota} יחידות תקציב` : '',
-      f.type === 2 ? `👺 ולבסוף: טפיחה על השכם לבוסניק ומירוץ ל-${f.tag}` : '',
-      `🖐️ ${f.desks} טפיחות על השכם לעובדים`,
+      f.type === 2 ? `👺 ולבסוף: ${mech().one} לבוסניק ומירוץ ל-${f.tag}` : '',
+      `🖐️ ${f.desks} ${mech().many} לעובדים`,
       f.twist ? `${iconText(f.goalIcon || '🏁')} קח את ${f.tag}, ואז רוץ איתה ${toThe(f.twist.goal)}`
               : `🏁 יעד: ${f.tag} — ${f.goalName}`,
       `⏳ ${Math.floor(f.time / 60)}:${String(f.time % 60).padStart(2, '0')} על השעון`
@@ -2301,13 +2330,13 @@
   const DEMO_STEP = 120;        // ms between the bot's moves, slower than a player
 
   /* A desk is only worth walking to while it still wants something. Testing
-     `isDesk` alone had the bot stand next to an already-praised desk pestering
+     `isDesk` alone had the bot stand next to an already-slapped desk hitting
      it forever: every tile is a desk, so every step was spent on nothing. */
   function deskWants(cell) {
-    const praise = cell === TILE.DESK || cell === TILE.DESK_UP;
+    const slap = cell === TILE.DESK || cell === TILE.DESK_UP;
     const part = S.floor.type === 0 && S.parts > 0 &&
                  (cell === TILE.DESK || cell === TILE.DESK_SAD);
-    return praise || part;
+    return slap || part;
   }
 
   function demoTargets() {
@@ -2384,7 +2413,7 @@
       worse than no attract mode, so rather than make the bot clever enough
       never to get stuck, notice that it is stuck and start another floor. */
   function demoProgress() {
-    return `${S.player.x},${S.player.y},${S.praises},${S.partsGiven},${S.coinsGot},${S.keys}`;
+    return `${S.player.x},${S.player.y},${S.slaps},${S.partsGiven},${S.coinsGot},${S.keys}`;
   }
 
   function updateDemo(dt) {
@@ -2432,21 +2461,21 @@
 
       const rival = S.rivals.find(r => r.x === cx && r.y === cy);
       if (rival) {
-        Audio.praise();
-        S.shake = 4;                       // a pat, not an impact
-        S.praiseFx.push({ x: cx, y: cy, timer: 20 });
+        Audio[mech().sfx]();
+        S.shake = mech().shake;
+        S.slapFx.push({ x: cx, y: cy, timer: 20 });
         rival.stun = 3200;
-        const deskWorkDone = S.praises >= S.floor.desks;
-        if (S.floor.type === 2 && rival.boss && !S.chadPraised && deskWorkDone) {
+        const deskWorkDone = S.slaps >= S.floor.desks;
+        if (S.floor.type === 2 && rival.boss && !S.chadSlapped && deskWorkDone) {
           // He sprints straight to HR from here, so only arm the race once the
           // rest of the floor is finished - otherwise it is an unwinnable loss.
-          S.chadPraised = true;
+          S.chadSlapped = true;
           rival.state = 'raceHR';
           rival.stun = 2600;
           rival.speed = Math.round(rival.speed * 1.35); // give the player a chance
-          award(1000, cx, cy, 'CHAMPION!', '#ffd166');
+          award(1000, cx, cy, mech().boss, mech().hue);
           addParticles(cx, cy, '#fff', 30);
-        } else if (S.floor.type === 2 && rival.boss && !S.chadPraised) {
+        } else if (S.floor.type === 2 && rival.boss && !S.chadSlapped) {
           award(500, cx, cy, 'קודם העובדים!', '#ffcc00');
           addParticles(cx, cy, '#ffcc00', 15);
         } else {
@@ -2470,11 +2499,11 @@
           return;
         }
         if (!sad) {
-          S.praises++;
+          S.slaps++;
           S.map[cy][cx] = upgraded ? TILE.DESK_UP_SAD : TILE.DESK_SAD;
-          Audio.praise(); S.shake = 3;
-          S.praiseFx.push({ x: cx, y: cy, timer: 20 });
-          award(500, cx, cy, 'אלוף!', '#3ab87a');
+          Audio[mech().sfx](); S.shake = mech().bossShake;
+          S.slapFx.push({ x: cx, y: cy, timer: 20 });
+          award(500, cx, cy, mech().hit, mech().hue);
           addParticles(cx, cy, '#fff', 15);
           updateHUD();
           return;
@@ -3236,7 +3265,7 @@
             const away = S.cast && S.cast.empty.has(y * MAP_W + x);
             if (!away) {
               ctx.font = '24px Arial'; ctx.fillStyle = '#fff';
-              ctx.fillText(sad ? '🤪' : paper ? '🧑‍💼' : '👨‍💻', pX, pY - 10 - hop);
+              ctx.fillText(sad ? mech().face : paper ? '🧑‍💼' : '👨‍💻', pX, pY - 10 - hop);
             }
             if (paper) {
               /* Drawn after the worker: behind them the stack was invisible,
@@ -3318,7 +3347,7 @@
             ctx.restore();
           }
 
-          for (const eff of S.praiseFx) {
+          for (const eff of S.slapFx) {
             if (eff.x !== x || eff.y !== y) continue;
             ctx.save();
             ctx.font = (30 + (20 - eff.timer)) + 'px Arial';
@@ -3354,8 +3383,8 @@
         if (--t.life <= 0) S.texts.splice(i, 1);
       }
       ctx.globalAlpha = 1;
-      for (let i = S.praiseFx.length - 1; i >= 0; i--) {
-        if (--S.praiseFx[i].timer <= 0) S.praiseFx.splice(i, 1);
+      for (let i = S.slapFx.length - 1; i >= 0; i--) {
+        if (--S.slapFx[i].timer <= 0) S.slapFx.splice(i, 1);
       }
     }
 

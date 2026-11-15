@@ -40,31 +40,7 @@ function serve() {
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server)));
 }
 
-/* The browser sweep below reads the data the GAME loads and the page it
-   renders. It cannot see a markdown file, which is how the old wording
-   survived in LEVELS.md through one pass of this change — a document players
-   are pointed at from the README. So the player-facing files are checked on
-   disk as well, before the browser starts.
-
-   README.md and .github/WEEKLY-NEWS.md are deliberately not in this list:
-   they state the rule, which means naming what the game does not do. */
-function checkNoViolenceOnDisk() {
-  const BAD = /צ'[אפ]*פח|סטיר[הת]|חבט/;
-  const files = ['src/levels.js', 'src/news.js', 'LEVELS.md', 'index.html',
-                 'src/game.js', 'src/startup.js', 'tools/niqqud.json'];
-  const hits = [];
-  for (const f of files) {
-    const text = fs.readFileSync(path.join(ROOT, f), 'utf8');
-    text.split('\n').forEach((line, i) => {
-      if (BAD.test(line)) hits.push(`${f}:${i + 1}`);
-    });
-  }
-  check('no file a player is pointed at carries the old wording',
-    hits.length === 0, hits.slice(0, 5).join(' '));
-}
-
 (async () => {
-  checkNoViolenceOnDisk();
   const server = await serve();
   const base = `http://127.0.0.1:${server.address().port}`;
   const browser = await chromium.launch();
@@ -272,7 +248,7 @@ function checkNoViolenceOnDisk() {
 
   await page.evaluate(() => {
     const s = window.RelWorld.state;
-    s.praises = s.floor.desks; s.partsGiven = s.floor.desks;
+    s.slaps = s.floor.desks; s.partsGiven = s.floor.desks;
     s.keys = 9; s.masterKey = true; s.timeLeft = 400;
   });
   const walk = await page.evaluate(async () => {
@@ -396,17 +372,17 @@ function checkNoViolenceOnDisk() {
   await faceRival();
   await page.keyboard.press('Space'); await page.waitForTimeout(150);
   check('boss slap before the desks are done does NOT start the race',
-    (await page.evaluate(() => window.RelWorld.state.chadPraised)) === false);
+    (await page.evaluate(() => window.RelWorld.state.chadSlapped)) === false);
 
-  await page.evaluate(() => { const s = window.RelWorld.state; s.praises = s.floor.desks; });
+  await page.evaluate(() => { const s = window.RelWorld.state; s.slaps = s.floor.desks; });
   await faceRival();
   await page.keyboard.press('Space'); await page.waitForTimeout(150);
   check('boss slap after the desks are done starts the race',
-    (await page.evaluate(() => window.RelWorld.state.chadPraised)) === true);
+    (await page.evaluate(() => window.RelWorld.state.chadSlapped)) === true);
 
   const caught = await page.evaluate(async () => {
     const s = window.RelWorld.state;
-    s.chadPraised = false; s.rivals[0].state = 'roam';
+    s.chadSlapped = false; s.rivals[0].state = 'roam';
     s.rivals[0].stun = 0; s.player.invuln = 0;
     s.rivals[0].x = s.player.x; s.rivals[0].y = s.player.y;
     await new Promise(r => setTimeout(r, 400));
@@ -814,8 +790,8 @@ function checkNoViolenceOnDisk() {
     document.getElementById('btnGo').click();
     await new Promise(r => setTimeout(r, 400));
     const s = api.state;
-    s.praises = s.floor.desks; s.partsGiven = s.floor.desks; s.coinsGot = s.floor.coinQuota;
-    s.chadPraised = true;
+    s.slaps = s.floor.desks; s.partsGiven = s.floor.desks; s.coinsGot = s.floor.coinQuota;
+    s.chadSlapped = true;
     api.levelCleared();
     await new Promise(r => setTimeout(r, 1300));
     const el = document.querySelector('#clearQuote .q-text');
@@ -863,8 +839,8 @@ function checkNoViolenceOnDisk() {
     document.getElementById('btnGo').click();
     await new Promise(r => setTimeout(r, 400));
     const s = api.state;
-    s.praises = s.floor.desks; s.partsGiven = s.floor.desks; s.coinsGot = s.floor.coinQuota;
-    s.chadPraised = true;
+    s.slaps = s.floor.desks; s.partsGiven = s.floor.desks; s.coinsGot = s.floor.coinQuota;
+    s.chadSlapped = true;
     api.levelCleared();
     await new Promise(r => setTimeout(r, 1300));
     const who = document.querySelector('#clearQuote .q-who');
@@ -977,8 +953,8 @@ function checkNoViolenceOnDisk() {
     document.getElementById('btnGo').click();
     await new Promise(r => setTimeout(r, 400));
     const s = api.state;
-    s.praises = s.floor.desks; s.partsGiven = s.floor.desks; s.coinsGot = s.floor.coinQuota;
-    s.chadPraised = true;
+    s.slaps = s.floor.desks; s.partsGiven = s.floor.desks; s.coinsGot = s.floor.coinQuota;
+    s.chadSlapped = true;
     api.levelCleared();
     await new Promise(r => setTimeout(r, 150));
     api.BRAND.analytics.src = '';
@@ -1147,8 +1123,7 @@ function checkNoViolenceOnDisk() {
   const spelling = await page.evaluate(() => {
     const L = window.RelWorld.LEVELS;
     const wrong = [
-      [/צ'[אפ]*פח/, 'the old slap wording, which this game no longer has'],
-      [/טפִ/, 'a pointed טפיחה on screen'],
+      [/צ'פח/, "צ'פחות without the alef"],
       [/(^|\s)[ולבהש]?כול(\s|[,.:;!?]|$)/, 'כול with the plene vav'],
       [/(^|\s)ה?זות(\s|[,.:;!?]|$)/, 'זות for זאת'],
       [/עסר/, 'עסרים for עשרים'],
@@ -1342,8 +1317,8 @@ function checkNoViolenceOnDisk() {
       want: { avatar: f.twist.avatar, goal: f.twist.goal, loop: !!f.twist.loop }
     };
     // satisfy the floor, then walk onto the goal the way a player would
-    S.praises = f.desks; S.partsGiven = f.desks; S.coinsGot = f.coinQuota;
-    S.chadPraised = true;
+    S.slaps = f.desks; S.partsGiven = f.desks; S.coinsGot = f.coinQuota;
+    S.chadSlapped = true;
     const dist = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
     // step onto the goal the way a player does, through tryMove itself
     const stepOnto = () => {
@@ -1549,8 +1524,8 @@ function checkNoViolenceOnDisk() {
     // ...and the finish must NOT, until the floor's own work is done
     stepOnto();
     const earlyFinish = S.state === 'clear' || !!S.loopRun;
-    S.praises = f.desks; S.partsGiven = f.desks; S.coinsGot = f.coinQuota;
-    S.chadPraised = true;
+    S.slaps = f.desks; S.partsGiven = f.desks; S.coinsGot = f.coinQuota;
+    S.chadSlapped = true;
     stepOnto();
     const finished = !!S.loopRun || S.state === 'clear';
     return { chips, panel, took, earlyFinish, lateFinish: finished,
@@ -1776,9 +1751,9 @@ function checkNoViolenceOnDisk() {
     for (let i = 0; i < 100 && S.state !== 'playing'; i++) {
       await new Promise(r => setTimeout(r, 100));
     }
-    const at0 = { x: S.player.x, y: S.player.y, praises: S.praises, parts: S.partsGiven };
+    const at0 = { x: S.player.x, y: S.player.y, slaps: S.slaps, parts: S.partsGiven };
     await new Promise(r => setTimeout(r, 5000));
-    const at1 = { x: S.player.x, y: S.player.y, praises: S.praises, parts: S.partsGiven };
+    const at1 = { x: S.player.x, y: S.player.y, slaps: S.slaps, parts: S.partsGiven };
     const badge = !document.getElementById('demoBadge').hidden;
     const why = document.getElementById('demoWhat').textContent;
     // any key hands control back — that is what an attract mode is for
@@ -1787,7 +1762,7 @@ function checkNoViolenceOnDisk() {
     return {
       badge, why,
       // real progress, not a frozen bot standing against a locked door
-      worked: at1.praises > at0.praises || at1.parts > at0.parts,
+      worked: at1.slaps > at0.slaps || at1.parts > at0.parts,
       moved: at1.x !== at0.x || at1.y !== at0.y,
       gaveUpControl: !S.demo && S.state === 'menu',
       badgeGone: document.getElementById('demoBadge').hidden
@@ -1828,63 +1803,36 @@ function checkNoViolenceOnDisk() {
     repo.blank === '_blank' && /noopener/.test(repo.rel),
     repo.href);
 
-  /* ---- nothing in this game hits anybody ----
-     The game is played in a school. The mechanic is a pat on the back for
-     good work, and the old wording must not survive anywhere a player or a
-     teacher could read it — not in a mission, not in a subtitle, not in a
-     quote, not in the menu, not in a floating label. This sweeps the whole
-     content set rather than the handful of strings that were changed. */
-  const kind = await page.evaluate(() => {
+  /* ---- a mission can ask for the gentle reading of the same mechanic ----
+     The slap is the game's central joke and it stays. A mission set in a
+     school is played by people who do not find it funny there, so that one
+     mission sets `gentle` and gets the same mechanic described as a pat on
+     the back. This checks the flag reaches the floor and changes only that
+     mission — the other 110 are untouched. */
+  const gentle = await page.evaluate(() => {
     const R = window.RelWorld;
-    const BAD = /צ'[אפ]*פח|סטיר[הת]|מכ[הות]\b|חבט/;
-    const hits = [];
-    const scan = (label, text) => {
-      if (text && BAD.test(String(text))) hits.push(`${label}: ${String(text).slice(0, 48)}`);
+    const read = () => ({
+      gentle: !!R.state.floor.gentle,
+      chips: document.getElementById('bObjectives').textContent,
+      panel: R.state.floor.desks
+    });
+    const i = R.NEWS.findIndex(n => n.level.gentle);
+    if (i < 0) return { none: true };
+    R.openBriefing(R.newsIndex(i), true);
+    const soft = read();
+    R.openBriefing(0, true);
+    const rough = read();
+    return {
+      soft, rough,
+      // and only the one mission is marked, not the career
+      marked: R.LEVELS.filter(l => l.gentle).length
     };
-    R.LEVELS.forEach((l, i) => {
-      for (const f of ['name', 'sub', 'saySub', 'text', 'say', 'goal', 'goalName']) scan(`L${i + 1}.${f}`, l[f]);
-      scan(`L${i + 1}.q`, l.q.t); scan(`L${i + 1}.who`, l.q.who);
-      scan(`L${i + 1}.sayT`, l.q.sayT); scan(`L${i + 1}.sayWho`, l.q.sayWho);
-      if (l.twist) { scan(`L${i + 1}.tw`, l.twist.announce); scan(`L${i + 1}.tw`, l.twist.sayAnnounce); }
-      if (l.outro) { scan(`L${i + 1}.outro`, l.outro.text); scan(`L${i + 1}.outro`, l.outro.say); }
-    });
-    R.NEWS.forEach(n => {
-      scan(`${n.id}.headline`, n.headline); scan(`${n.id}.blurb`, n.blurb);
-      scan(`${n.id}.source`, n.source);
-      n.bulletin.forEach((b, j) => { scan(`${n.id}.b${j}`, b.text); scan(`${n.id}.b${j}`, b.say); });
-    });
-    // and everything the page itself says, menu and help included
-    scan('page', document.body.innerText);
-    return hits;
   });
-  check('no wording anywhere describes hitting anyone', kind.length === 0,
-    kind.slice(0, 4).join(' | '));
-
-  /* The reward for good work reads as one: the label, the colour and the face
-     at the desk. A desk that has been praised used to show a crying worker. */
-  const praise = await page.evaluate(async () => {
-    const R = window.RelWorld, S = R.state, T = R.TILE;
-    R.openBriefing(0, true); R.startLevel();
-    for (let i = 0; i < 80 && S.state !== 'playing'; i++) await new Promise(r => setTimeout(r, 100));
-    // stand next to a desk and act, the way a player does
-    let found = null;
-    outer: for (let y = 1; y < 19; y++) for (let x = 1; x < 19; x++) {
-      if (S.map[y][x] === T.DESK && (S.map[y][x - 1] === T.FLOOR || S.map[y][x - 1] === T.ROOM)) {
-        found = { x, y }; break outer;
-      }
-    }
-    if (!found) return { skip: true };
-    S.player.x = found.x - 1; S.player.y = found.y;
-    const before = S.praises;
-    // the action is the space bar, the same as a player's
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ' }));
-    await new Promise(r => setTimeout(r, 120));
-    const label = (S.texts.find(t => t.text) || {}).text || '';
-    return { worked: S.praises > before, label, sad: S.map[found.y][found.x] === T.DESK_SAD };
-  });
-  check('praising a desk says so, in those words', praise.skip ||
-    (praise.worked && /אלוף/.test(praise.label)),
-    JSON.stringify(praise));
+  check('the school mission reads as a pat on the back, and only that one does',
+    !gentle.none && gentle.soft.gentle && !gentle.rough.gentle &&
+    /טפיחות על השכם/.test(gentle.soft.chips) && !/צ'אפח/.test(gentle.soft.chips) &&
+    /צ'אפחות/.test(gentle.rough.chips) && gentle.marked === 1,
+    `gentle=${gentle.marked} | soft: ${(gentle.soft || {}).chips || ''}`.slice(0, 110));
 
   check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

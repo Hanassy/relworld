@@ -21,8 +21,8 @@
      - no kamatz in a closed syllable, where the engine may read it /o/ —
        patach there instead. That is why כל is spelled כּוֹל and צנחה is צַנחָה.
      - a letter that is heard is written, and one that is not is dropped:
-       hence כול with a vav and מאסק spelled מַסק, which the engine was
-       reading as "ma-SAK".
+       hence כול with a vav, צ'פחות without the alef, and מאסק spelled מַסק,
+       which the engine was reading as "ma-SAK".
      - a doubled vav is the standard plene spelling of a mid-word /v/, and the
        engine reads it as two: אוויר came out "av-VIR". Where the pair is one
        sound it becomes a single pointed vav (אֲוִיר). Where the two vavs are
@@ -68,9 +68,9 @@ const HEBREW = /[֐-׿]/;
 const bare = s => s.replace(NIQQUD, '');
 
 /* Some entries change the spelling as well as the points — כל becomes כּוֹל and
-   מאסק becomes מַסק — so after one pass the text no longer contains the word
-   the list is keyed on. Each result is registered as its own key, which makes
-   running the tool twice a no-op. */
+   צ'אפחות loses its alef — so after one pass the text no longer contains the
+   word the list is keyed on. Each result is registered as its own key, which
+   makes running the tool twice a no-op. */
 for (const pointed of Object.values(DICT)) {
   const key = bare(pointed);
   if (!DICT[key]) DICT[key] = pointed;
@@ -215,7 +215,7 @@ function main() {
      spent a release showing the HR lawyer at the goal. `pick` now refuses to
      drop anything instead. */
   const ORDER = ['name', 'sub', 'saySub', 'type', 'goal', 'goalName', 'goalIcon',
-                 'scene', 'era', 'avatar', 'text', 'say', 'twist', 'outro', 'q'];
+                 'scene', 'era', 'avatar', 'gentle', 'text', 'say', 'twist', 'outro', 'q'];
   // and the quote's own keys, for the same reason ORDER exists
   const Q_ORDER = ['t', 'sayT', 'who', 'sayWho', 'year'];
   const ordered = data.map((l, i) => {
